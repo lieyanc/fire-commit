@@ -17,7 +17,7 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 	fmt.Println(subtitleStyle.Render("   Edit your settings below."))
 	fmt.Println()
 
-	// --- Provider settings ---
+	// ── Step 1: Select provider ──
 	providerName := cfg.DefaultProvider
 	names := llm.ProviderNames()
 	displayNames := llm.ProviderDisplayNames()
@@ -27,22 +27,25 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 		providerOptions[i] = huh.NewOption(displayNames[name], name)
 	}
 
-	var apiKey string
-	var model string
-	var baseURL string
+	providerSelect := huh.NewSelect[string]().
+		Title("LLM Provider").
+		Options(providerOptions...).
+		Value(&providerName)
+
+	if err := huh.NewForm(huh.NewGroup(providerSelect)).Run(); err != nil {
+		return cfg, err
+	}
+
+	// ── Step 2: Provider details (API key, model, base URL) ──
+	var apiKey, model, baseURL string
 	if p, ok := cfg.Providers[providerName]; ok {
 		apiKey = p.APIKey
 		model = p.Model
 		baseURL = p.BaseURL
 	}
 
-	providerSelect := huh.NewSelect[string]().
-		Title("LLM Provider").
-		Options(providerOptions...).
-		Value(&providerName)
-
 	apiKeyInput := huh.NewInput().
-		Title("API Key").
+		Title(fmt.Sprintf("%s API Key", displayNames[providerName])).
 		Value(&apiKey).
 		EchoMode(huh.EchoModePassword).
 		Validate(func(s string) error {
@@ -52,40 +55,58 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 			return nil
 		})
 
+	providerFields := []huh.Field{apiKeyInput}
+
+	if providerName == "custom" {
+		baseURLInput := huh.NewInput().
+			Title("API Base URL").
+			Placeholder("https://api.example.com/v1").
+			Value(&baseURL).
+			Validate(func(s string) error {
+				if s == "" {
+					return fmt.Errorf("base URL is required for custom provider")
+				}
+				return nil
+			})
+		providerFields = append(providerFields, baseURLInput)
+	}
+
+	defaultModel := llm.DefaultModel(providerName)
 	modelInput := huh.NewInput().
 		Title("Model name").
-		Placeholder(llm.DefaultModel(providerName)).
+		Placeholder(defaultModel).
 		Value(&model)
+	providerFields = append(providerFields, modelInput)
 
-	baseURLInput := huh.NewInput().
-		Title("API Base URL (for custom provider)").
-		Placeholder("https://api.example.com/v1").
-		Value(&baseURL)
+	if err := huh.NewForm(huh.NewGroup(providerFields...)).Run(); err != nil {
+		return cfg, err
+	}
 
-	providerGroup := huh.NewGroup(providerSelect, apiKeyInput, modelInput, baseURLInput).
-		Title("Provider Settings")
-
-	// --- Generation settings ---
+	// ── Step 3: Generation settings ──
 	language := cfg.Generation.Language
-	numSugStr := strconv.Itoa(cfg.Generation.NumSuggestions)
+	numSuggestions := cfg.Generation.NumSuggestions
 	maxDiffStr := strconv.Itoa(cfg.Generation.MaxDiffLines)
 
-	languageInput := huh.NewInput().
+	languageSelect := huh.NewSelect[string]().
 		Title("Commit message language").
-		Placeholder("en").
+		Options(
+			huh.NewOption("English", "en"),
+			huh.NewOption("中文", "zh"),
+			huh.NewOption("日本語", "ja"),
+			huh.NewOption("한국어", "ko"),
+		).
 		Value(&language)
 
-	numSugInput := huh.NewInput().
+	numSugSelect := huh.NewSelect[int]().
 		Title("Number of suggestions").
-		Placeholder("3").
-		Value(&numSugStr).
-		Validate(func(s string) error {
-			n, err := strconv.Atoi(s)
-			if err != nil || n < 1 {
-				return fmt.Errorf("must be a positive integer")
-			}
-			return nil
-		})
+		Options(
+			huh.NewOption("1", 1),
+			huh.NewOption("2", 2),
+			huh.NewOption("3 (default)", 3),
+			huh.NewOption("4", 4),
+			huh.NewOption("5", 5),
+		).
+		Value(&numSuggestions)
 
 	maxDiffInput := huh.NewInput().
 		Title("Max diff lines").
@@ -99,10 +120,11 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 			return nil
 		})
 
-	genGroup := huh.NewGroup(languageInput, numSugInput, maxDiffInput).
-		Title("Generation Settings")
+	if err := huh.NewForm(huh.NewGroup(languageSelect, numSugSelect, maxDiffInput)).Run(); err != nil {
+		return cfg, err
+	}
 
-	// --- Update settings ---
+	// ── Step 4: Update settings ──
 	updateChannel := cfg.UpdateChannel
 	if updateChannel == "" {
 		updateChannel = "latest"
@@ -129,20 +151,13 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 		).
 		Value(&autoUpdate)
 
-	updateGroup := huh.NewGroup(channelSelect, autoUpdateSelect).
-		Title("Update Settings")
-
-	// Run the form
-	if err := huh.NewForm(providerGroup, genGroup, updateGroup).Run(); err != nil {
+	if err := huh.NewForm(huh.NewGroup(channelSelect, autoUpdateSelect)).Run(); err != nil {
 		return cfg, err
 	}
 
-	// Apply values
+	// ── Apply & save ──
 	if model == "" {
-		model = llm.DefaultModel(providerName)
-	}
-	if language == "" {
-		language = "en"
+		model = defaultModel
 	}
 
 	provCfg := config.ProviderConfig{
@@ -159,9 +174,7 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 	}
 	cfg.Providers[providerName] = provCfg
 	cfg.Generation.Language = language
-	if n, err := strconv.Atoi(numSugStr); err == nil {
-		cfg.Generation.NumSuggestions = n
-	}
+	cfg.Generation.NumSuggestions = numSuggestions
 	if n, err := strconv.Atoi(maxDiffStr); err == nil {
 		cfg.Generation.MaxDiffLines = n
 	}
