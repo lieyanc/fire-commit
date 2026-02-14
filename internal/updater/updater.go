@@ -107,10 +107,13 @@ func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 // HasNewerVersion checks if the latest version is newer than the current version.
 // For stable channel, uses semver comparison.
 // For latest channel, uses string inequality (any difference means update available).
-// Returns false if current is "dev" (local development build).
+// For dev builds (current == "dev"), any published release is considered newer.
 func HasNewerVersion(current, latest, channel string) bool {
-	if current == "dev" || latest == "" {
+	if latest == "" {
 		return false
+	}
+	if current == "dev" {
+		return true
 	}
 	if channel == ChannelStable {
 		return CompareVersions(current, latest)

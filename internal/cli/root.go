@@ -22,7 +22,6 @@ func Execute() error {
 }
 
 func runDefault(cmd *cobra.Command, args []string) error {
-
 	// Step 1: Check or create config
 	var cfg *config.Config
 	if !config.Exists() {
