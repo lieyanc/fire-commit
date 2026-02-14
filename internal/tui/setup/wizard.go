@@ -105,6 +105,7 @@ func RunWizard() (*config.Config, error) {
 
 	cfg.DefaultProvider = providerName
 	cfg.Providers[providerName] = provCfg
+	cfg.ConfigVersion = config.CurrentConfigVersion
 
 	if err := config.Save(cfg); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)

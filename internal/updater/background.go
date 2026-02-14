@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // BackgroundChecker runs an update check in a background goroutine.
@@ -71,8 +73,21 @@ func (bc *BackgroundChecker) NoticeString() string {
 	if r.Err != nil || !r.HasUpdate {
 		return ""
 	}
-	return fmt.Sprintf(
-		"\nA new version of fire-commit is available: %s -> %s\nRun `firecommit update` to upgrade.\n",
-		r.CurrentVersion, r.LatestVersion,
+
+	versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB347")).Bold(true)
+	commandStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA07A")).Bold(true)
+
+	content := fmt.Sprintf(
+		"Update available: %s → %s\nRun %s to upgrade.",
+		versionStyle.Render(r.CurrentVersion),
+		versionStyle.Render(r.LatestVersion),
+		commandStyle.Render("firecommit update"),
 	)
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF6B35")).
+		Padding(0, 1)
+
+	return "\n" + box.Render(content) + "\n"
 }

@@ -12,7 +12,13 @@ import (
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Show or manage configuration",
+	Short: "Open interactive configuration editor",
+	RunE:  runConfigEdit,
+}
+
+var configShowCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Display current configuration as YAML",
 	RunE:  runConfigShow,
 }
 
@@ -23,8 +29,25 @@ var configSetupCmd = &cobra.Command{
 }
 
 func init() {
+	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetupCmd)
 	rootCmd.AddCommand(configCmd)
+}
+
+func runConfigEdit(cmd *cobra.Command, args []string) error {
+	if !config.Exists() {
+		fmt.Println("No configuration found. Running setup wizard...")
+		_, err := setup.RunWizard()
+		return err
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	_, err = setup.RunConfigEditor(cfg)
+	return err
 }
 
 func runConfigShow(cmd *cobra.Command, args []string) error {

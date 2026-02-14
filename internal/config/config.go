@@ -20,8 +20,13 @@ type GenerationConfig struct {
 	MaxDiffLines   int    `yaml:"max_diff_lines"`
 }
 
+// CurrentConfigVersion is bumped when new config fields are added.
+// Existing configs with a lower version will trigger a migration prompt.
+const CurrentConfigVersion = 1
+
 // Config is the top-level configuration.
 type Config struct {
+	ConfigVersion   int                       `yaml:"config_version"`
 	DefaultProvider string                    `yaml:"default_provider"`
 	Providers       map[string]ProviderConfig `yaml:"providers"`
 	Generation      GenerationConfig          `yaml:"generation"`
@@ -34,6 +39,12 @@ type Config struct {
 	AutoUpdate string `yaml:"auto_update,omitempty"`
 }
 
+// NeedsMigration returns true if the config was created with an older version
+// and new config fields need to be presented to the user.
+func NeedsMigration(cfg *Config) bool {
+	return cfg.ConfigVersion < CurrentConfigVersion
+}
+
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -42,7 +53,7 @@ func DefaultConfig() *Config {
 		Generation: GenerationConfig{
 			NumSuggestions: 3,
 			Language:       "en",
-			MaxDiffLines:   500,
+			MaxDiffLines:   4096,
 		},
 		UpdateChannel: "latest",
 	}

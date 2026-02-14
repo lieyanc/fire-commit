@@ -38,6 +38,15 @@ func runDefault(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Step 1.5: Check if config needs migration
+	if config.NeedsMigration(cfg) {
+		var err error
+		cfg, err = setup.RunMigration(cfg)
+		if err != nil {
+			return fmt.Errorf("config migration failed: %w", err)
+		}
+	}
+
 	// Step 2: Check git repo
 	if !git.IsGitRepo() {
 		return fmt.Errorf("not a git repository")

@@ -28,25 +28,32 @@ func buildSystemPrompt(lang string) string {
 		langInstruction = "English"
 	}
 
-	return fmt.Sprintf(`You are an expert at writing concise, meaningful git commit messages following the Conventional Commits specification.
+	return fmt.Sprintf(`You write git commit messages in Conventional Commits format.
+
+Format: type(scope): description
+Types: feat fix docs style refactor perf test build ci chore revert
 
 Rules:
-1. Use the format: type(scope): description
-2. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
-3. Scope is optional but encouraged when clear
-4. Description should be lowercase, imperative mood, no period at end
-5. Keep the first line under 72 characters
-6. Write the commit message in %s
+- Scope is optional; use it when a clear module/component is involved
+- Description: lowercase, imperative mood, no trailing period
+- Focus on WHY the change was made or WHAT it achieves, not a file-by-file listing
+- Under 72 characters total
+- Write in %s
 
-Analyze the provided git diff and generate commit messages that accurately describe the changes.`, langInstruction)
+Good examples:
+- feat(auth): add OAuth2 login flow
+- fix: prevent nil pointer on empty config
+- refactor(api): split handler into service layer
+
+Bad examples:
+- update files (too vague)
+- fix: fix the bug (redundant)
+- feat: add function handleAuth and modify config.go and update tests (file listing)`, langInstruction)
 }
 
 func buildUserPrompt(diff string) string {
-	return fmt.Sprintf(`Based on the following git diff, generate exactly one commit message that accurately describes the changes.
+	return fmt.Sprintf(`Write one commit message for this diff. Output the raw message only — no quotes, no markup, no explanation.
 
-Output ONLY the commit message on a single line, with no numbering, bullets, or extra text.
-
-Git diff:
 %s`, diff)
 }
 
