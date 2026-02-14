@@ -15,31 +15,34 @@ func (m Model) updateLoading(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case startStreamMsg:
-		m.phase = PhaseStreaming
-		m.streamCh = msg.ch
-		// Process first chunk
-		if msg.first.Err != nil {
-			m.commitErr = msg.first.Err
-			m.phase = PhaseDone
-			return m, nil
-		}
-		if msg.first.Done {
-			m.messages = parseMessages(m.streamBuf.String())
-			m.phase = PhaseSelect
-			return m, nil
-		}
-		m.streamBuf.WriteString(msg.first.Content)
-		return m, waitForChunk(m.streamCh)
+	case startResultsMsg:
+		m.resultCh = msg.ch
+		return m, waitForMessage(m.resultCh)
 
-	case streamChunkMsg:
-		if msg.chunk.Err != nil {
-			m.commitErr = msg.chunk.Err
-			m.phase = PhaseDone
-			return m, nil
+	case messageReadyMsg:
+		if msg.err != nil {
+			// If this is the very first result and it's a provider error,
+			// treat it as fatal (e.g. bad API key).
+			if m.completed == 0 && m.resultCh == nil {
+				m.commitErr = msg.err
+				m.phase = PhaseDone
+				return m, nil
+			}
+			// Otherwise, shrink total — this slot failed, skip it.
+			m.total--
+			if m.total <= 0 {
+				m.commitErr = fmt.Errorf("all LLM requests failed: %w", msg.err)
+				m.phase = PhaseDone
+				return m, nil
+			}
+			return m, waitForMessage(m.resultCh)
 		}
-		if msg.chunk.Done {
-			m.messages = parseMessages(m.streamBuf.String())
+
+		m.messages[msg.index] = msg.content
+		m.completed++
+
+		if m.completed >= m.total {
+			m.messages = compactMessages(m.messages)
 			if len(m.messages) == 0 {
 				m.commitErr = fmt.Errorf("LLM returned no commit messages")
 				m.phase = PhaseDone
@@ -48,9 +51,17 @@ func (m Model) updateLoading(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseSelect
 			return m, nil
 		}
-		m.phase = PhaseStreaming
-		m.streamBuf.WriteString(msg.chunk.Content)
-		return m, waitForChunk(m.streamCh)
+		return m, waitForMessage(m.resultCh)
+
+	case allDoneMsg:
+		m.messages = compactMessages(m.messages)
+		if len(m.messages) == 0 {
+			m.commitErr = fmt.Errorf("LLM returned no commit messages")
+			m.phase = PhaseDone
+			return m, nil
+		}
+		m.phase = PhaseSelect
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -63,55 +74,36 @@ func (m Model) viewLoading() string {
 	b.WriteString(titleStyle.Render("🔥 fire-commit"))
 	b.WriteString("\n\n")
 
-	if m.phase == PhaseStreaming {
-		b.WriteString(m.spinner.View() + " Generating commit messages...\n\n")
-		// Show streaming content
-		content := m.streamBuf.String()
-		if content != "" {
-			b.WriteString(dimStyle.Render(content))
+	b.WriteString(fmt.Sprintf("%s Generating commit messages (%d/%d)...\n",
+		m.spinner.View(), m.completed, m.total))
+
+	// Show completed messages
+	for i, msg := range m.messages {
+		if msg != "" {
+			b.WriteString(fmt.Sprintf("\n  %s %s",
+				successStyle.Render("✓"),
+				dimStyle.Render(msg)))
+		} else if i < m.total {
+			b.WriteString(fmt.Sprintf("\n  %s",
+				dimStyle.Render("  ...")))
 		}
-	} else {
-		b.WriteString(m.spinner.View() + " Analyzing changes...\n")
-		if m.stat != "" {
-			b.WriteString(dimStyle.Render(m.stat))
-		}
+	}
+
+	if m.stat != "" && m.completed == 0 {
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(m.stat))
 	}
 
 	return boxStyle.Render(b.String())
 }
 
-// parseMessages splits the LLM response into individual commit messages.
-func parseMessages(raw string) []string {
-	lines := strings.Split(strings.TrimSpace(raw), "\n")
-	var messages []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Strip common prefixes like "1. ", "- ", "* "
-		line = stripListPrefix(line)
-		if line != "" {
-			messages = append(messages, line)
+// compactMessages removes empty strings from the messages slice.
+func compactMessages(msgs []string) []string {
+	var result []string
+	for _, m := range msgs {
+		if m != "" {
+			result = append(result, m)
 		}
 	}
-	return messages
-}
-
-func stripListPrefix(s string) string {
-	// Strip numbered list: "1. ", "2) ", etc.
-	for i, c := range s {
-		if c >= '0' && c <= '9' {
-			continue
-		}
-		if (c == '.' || c == ')') && i > 0 {
-			return strings.TrimSpace(s[i+1:])
-		}
-		break
-	}
-	// Strip bullet: "- ", "* "
-	if len(s) > 2 && (s[0] == '-' || s[0] == '*') && s[1] == ' ' {
-		return strings.TrimSpace(s[2:])
-	}
-	return s
+	return result
 }

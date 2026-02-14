@@ -2,12 +2,11 @@ package tui
 
 import (
 	"context"
-	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/lieyanc/fire-commit/internal/config"
 	"github.com/lieyanc/fire-commit/internal/llm"
 )
@@ -17,7 +16,6 @@ type Phase int
 
 const (
 	PhaseLoading Phase = iota
-	PhaseStreaming
 	PhaseSelect
 	PhaseEdit
 	PhaseConfirm
@@ -32,15 +30,15 @@ type Model struct {
 	diff  string
 	stat  string
 
-	// Loading/Streaming
-	spinner    spinner.Model
-	streamBuf  strings.Builder
-	streamCh   <-chan llm.StreamChunk
-	streamDone bool
+	// Loading: progressive per-message results
+	spinner   spinner.Model
+	messages  []string
+	completed int
+	total     int
+	resultCh  <-chan llm.IndexedMessage
 
 	// Select
-	messages []string
-	cursor   int
+	cursor int
 
 	// Edit
 	editArea textarea.Model
@@ -67,10 +65,15 @@ type Model struct {
 	wantPush bool
 }
 
-// streamChunkMsg wraps a chunk received from the LLM stream.
-type streamChunkMsg struct {
-	chunk llm.StreamChunk
+// messageReadyMsg signals a single LLM request completed.
+type messageReadyMsg struct {
+	index   int
+	content string
+	err     error
 }
+
+// allDoneMsg signals the result channel was closed (all requests finished).
+type allDoneMsg struct{}
 
 // commitDoneMsg signals the commit operation completed.
 type commitDoneMsg struct{ err error }
@@ -93,12 +96,19 @@ func NewModel(cfg *config.Config, diff, stat string) Model {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	n := cfg.Generation.NumSuggestions
+	if n <= 0 {
+		n = 3
+	}
+
 	return Model{
 		phase:         PhaseLoading,
 		cfg:           cfg,
 		diff:          diff,
 		stat:          stat,
 		spinner:       s,
+		messages:      make([]string, n),
+		total:         n,
 		editArea:      ta,
 		confirmCursor: 0,
 		ctx:           ctx,
@@ -125,7 +135,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.phase {
-	case PhaseLoading, PhaseStreaming:
+	case PhaseLoading:
 		return m.updateLoading(msg)
 	case PhaseSelect:
 		return m.updateSelect(msg)
@@ -144,7 +154,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	switch m.phase {
-	case PhaseLoading, PhaseStreaming:
+	case PhaseLoading:
 		return m.viewLoading()
 	case PhaseSelect:
 		return m.viewSelect()
@@ -164,43 +174,35 @@ func (m Model) startGeneration() tea.Cmd {
 	return func() tea.Msg {
 		provider, err := llm.NewProvider(m.cfg)
 		if err != nil {
-			return streamChunkMsg{chunk: llm.StreamChunk{Err: err}}
+			return messageReadyMsg{index: 0, err: err}
 		}
 
 		opts := llm.GenerateOptions{
-			NumSuggestions: m.cfg.Generation.NumSuggestions,
-			Language:       m.cfg.Generation.Language,
+			Language: m.cfg.Generation.Language,
 		}
 
-		ch, err := provider.GenerateCommitMessages(m.ctx, m.diff, opts)
-		if err != nil {
-			return streamChunkMsg{chunk: llm.StreamChunk{Err: err}}
-		}
-
-		// Read first chunk to kick things off
-		chunk, ok := <-ch
-		if !ok {
-			return streamChunkMsg{chunk: llm.StreamChunk{Done: true}}
-		}
-
-		// Store the channel in a closure and return the first chunk
-		// We need to use a command to continue reading
-		return startStreamMsg{ch: ch, first: chunk}
+		ch := llm.GenerateMultiple(m.ctx, provider, m.diff, opts, m.total)
+		return startResultsMsg{ch: ch}
 	}
 }
 
-type startStreamMsg struct {
-	ch    <-chan llm.StreamChunk
-	first llm.StreamChunk
+// startResultsMsg delivers the IndexedMessage channel to the model.
+type startResultsMsg struct {
+	ch <-chan llm.IndexedMessage
 }
 
-func waitForChunk(ch <-chan llm.StreamChunk) tea.Cmd {
+// waitForMessage reads the next IndexedMessage from the channel.
+func waitForMessage(ch <-chan llm.IndexedMessage) tea.Cmd {
 	return func() tea.Msg {
-		chunk, ok := <-ch
+		msg, ok := <-ch
 		if !ok {
-			return streamChunkMsg{chunk: llm.StreamChunk{Done: true}}
+			return allDoneMsg{}
 		}
-		return streamChunkMsg{chunk: chunk}
+		return messageReadyMsg{
+			index:   msg.Index,
+			content: msg.Content,
+			err:     msg.Err,
+		}
 	}
 }
 

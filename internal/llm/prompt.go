@@ -1,6 +1,9 @@
 package llm
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func buildSystemPrompt(lang string) string {
 	langInstruction := "English"
@@ -38,11 +41,46 @@ Rules:
 Analyze the provided git diff and generate commit messages that accurately describe the changes.`, langInstruction)
 }
 
-func buildUserPrompt(diff string, n int) string {
-	return fmt.Sprintf(`Based on the following git diff, generate exactly %d different commit message suggestions. Each message should capture the essence of the changes from a different angle or level of detail.
+func buildUserPrompt(diff string) string {
+	return fmt.Sprintf(`Based on the following git diff, generate exactly one commit message that accurately describes the changes.
 
-Output ONLY the commit messages, one per line, with no numbering, bullets, or extra text.
+Output ONLY the commit message on a single line, with no numbering, bullets, or extra text.
 
 Git diff:
-%s`, n, diff)
+%s`, diff)
+}
+
+// parseMessage extracts a single commit message from the LLM response.
+// It trims whitespace and strips any list prefixes the LLM may have added.
+func parseMessage(raw string) string {
+	line := strings.TrimSpace(raw)
+	if line == "" {
+		return ""
+	}
+	// If multiple lines, take the first non-empty one
+	for _, l := range strings.Split(line, "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			return stripPrefix(l)
+		}
+	}
+	return ""
+}
+
+func stripPrefix(s string) string {
+	// Strip numbered list: "1. ", "2) ", etc.
+	for i, c := range s {
+		if c >= '0' && c <= '9' {
+			continue
+		}
+		if (c == '.' || c == ')') && i > 0 {
+			return strings.TrimSpace(s[i+1:])
+		}
+		break
+	}
+	// Strip bullet: "- ", "* "
+	if len(s) > 2 && (s[0] == '-' || s[0] == '*') && s[1] == ' ' {
+		return strings.TrimSpace(s[2:])
+	}
+	return s
 }

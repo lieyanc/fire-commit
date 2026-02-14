@@ -30,7 +30,7 @@ func (p *AnthropicProvider) GenerateCommitMessages(ctx context.Context, diff str
 		},
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(
-				anthropic.NewTextBlock(buildUserPrompt(diff, opts.NumSuggestions)),
+				anthropic.NewTextBlock(buildUserPrompt(diff)),
 			),
 		},
 	})

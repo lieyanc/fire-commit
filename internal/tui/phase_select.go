@@ -29,9 +29,14 @@ func (m Model) updateSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseEdit
 			return m, m.editArea.Focus()
 		case key.Matches(msg, keys.Regen):
-			m.streamBuf.Reset()
-			m.streamDone = false
-			m.messages = nil
+			n := m.cfg.Generation.NumSuggestions
+			if n <= 0 {
+				n = 3
+			}
+			m.messages = make([]string, n)
+			m.completed = 0
+			m.total = n
+			m.resultCh = nil
 			m.cursor = 0
 			m.phase = PhaseLoading
 			return m, tea.Batch(m.spinner.Tick, m.startGeneration())

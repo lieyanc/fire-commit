@@ -30,7 +30,7 @@ func (p *OpenAICompatProvider) GenerateCommitMessages(ctx context.Context, diff 
 		Model: p.model,
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(buildSystemPrompt(opts.Language)),
-			openai.UserMessage(buildUserPrompt(diff, opts.NumSuggestions)),
+			openai.UserMessage(buildUserPrompt(diff)),
 		},
 	})
 
