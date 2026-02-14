@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lieyanc/fire-commit/internal/config"
 	"github.com/lieyanc/fire-commit/internal/updater"
 	"github.com/spf13/cobra"
 )
@@ -20,7 +21,13 @@ func init() {
 
 func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Current version: %s\n", appVersion)
-	if err := updater.SelfUpdate(context.Background(), appVersion); err != nil {
+
+	channel := updater.ChannelLatest
+	if cfg, err := config.Load(); err == nil && cfg.UpdateChannel != "" {
+		channel = cfg.UpdateChannel
+	}
+
+	if err := updater.SelfUpdate(context.Background(), appVersion, channel); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 	return nil

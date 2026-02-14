@@ -19,6 +19,7 @@ const (
 type CacheFile struct {
 	LastCheck     time.Time `json:"last_check"`
 	LatestVersion string    `json:"latest_version"`
+	Channel       string    `json:"channel,omitempty"`
 }
 
 func cachePath() string {
@@ -51,7 +52,11 @@ func SaveCache(cf *CacheFile) error {
 	return os.WriteFile(p, data, 0o644)
 }
 
-// ShouldCheck returns true if enough time has passed since the last check.
-func ShouldCheck(cf *CacheFile) bool {
+// ShouldCheck returns true if enough time has passed since the last check,
+// or if the channel has changed since the last check.
+func ShouldCheck(cf *CacheFile, currentChannel string) bool {
+	if cf.Channel != currentChannel {
+		return true
+	}
 	return time.Since(cf.LastCheck) > checkInterval
 }

@@ -16,37 +16,33 @@ import (
 )
 
 // SelfUpdate downloads and installs the latest release, replacing the current binary.
-func SelfUpdate(ctx context.Context, currentVersion string) error {
+// The channel parameter determines which releases to consider ("latest" or "stable").
+func SelfUpdate(ctx context.Context, currentVersion, channel string) error {
 	fmt.Println("Checking for updates...")
 
-	release, err := FetchLatestRelease(ctx)
+	release, err := FetchLatestRelease(ctx, channel)
 	if err != nil {
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}
 
-	if !CompareVersions(currentVersion, release.TagName) {
+	latestVersion := release.Version()
+
+	if !HasNewerVersion(currentVersion, latestVersion, channel) {
 		fmt.Printf("Already up to date (%s).\n", currentVersion)
 		return nil
 	}
 
-	fmt.Printf("Updating %s -> %s\n", currentVersion, release.TagName)
+	fmt.Printf("Updating %s -> %s\n", currentVersion, latestVersion)
 
 	// Find matching asset
-	wantName := AssetNameForPlatform(release.TagName)
-	var downloadURL string
-	for _, a := range release.Assets {
-		if a.Name == wantName {
-			downloadURL = a.BrowserDownloadURL
-			break
-		}
-	}
-	if downloadURL == "" {
-		return fmt.Errorf("no release asset found for %s/%s (expected %s)", runtime.GOOS, runtime.GOARCH, wantName)
+	asset := FindAssetForPlatform(release.Assets)
+	if asset == nil {
+		return fmt.Errorf("no release asset found for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
 	// Download archive
-	fmt.Printf("Downloading %s...\n", wantName)
-	archivePath, err := downloadToTemp(ctx, downloadURL)
+	fmt.Printf("Downloading %s...\n", asset.Name)
+	archivePath, err := downloadToTemp(ctx, asset.BrowserDownloadURL)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
@@ -59,7 +55,7 @@ func SelfUpdate(ctx context.Context, currentVersion string) error {
 	}
 	defer os.RemoveAll(extractDir)
 
-	if strings.HasSuffix(wantName, ".zip") {
+	if strings.HasSuffix(asset.Name, ".zip") {
 		err = extractZip(archivePath, extractDir)
 	} else {
 		err = extractTarGz(archivePath, extractDir)
@@ -111,7 +107,7 @@ func SelfUpdate(ctx context.Context, currentVersion string) error {
 	baseName := filepath.Base(execPath)
 	recreateLinks(binDir, baseName)
 
-	fmt.Printf("Successfully updated to %s\n", release.TagName)
+	fmt.Printf("Successfully updated to %s\n", latestVersion)
 	return nil
 }
 

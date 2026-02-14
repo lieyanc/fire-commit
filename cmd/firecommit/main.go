@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/lieyanc/fire-commit/internal/cli"
+	"github.com/lieyanc/fire-commit/internal/config"
 	"github.com/lieyanc/fire-commit/internal/updater"
 )
 
@@ -16,7 +17,11 @@ func main() {
 	// Start background update check for non-dev builds
 	var checker *updater.BackgroundChecker
 	if version != "dev" {
-		checker = updater.StartBackgroundCheck(version)
+		channel := updater.ChannelLatest
+		if cfg, err := config.Load(); err == nil && cfg.UpdateChannel != "" {
+			channel = cfg.UpdateChannel
+		}
+		checker = updater.StartBackgroundCheck(version, channel)
 	}
 
 	err := cli.Execute()

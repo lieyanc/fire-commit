@@ -14,7 +14,8 @@ type BackgroundChecker struct {
 
 // StartBackgroundCheck launches a background goroutine that checks for updates.
 // It respects the 24h cache interval to avoid hitting the API on every run.
-func StartBackgroundCheck(currentVersion string) *BackgroundChecker {
+// The channel parameter determines which releases to consider ("latest" or "stable").
+func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
 	bc := &BackgroundChecker{
 		done: make(chan struct{}),
 	}
@@ -30,26 +31,28 @@ func StartBackgroundCheck(currentVersion string) *BackgroundChecker {
 			return
 		}
 
-		if !ShouldCheck(cache) {
+		if !ShouldCheck(cache, channel) {
 			// Use cached result
 			bc.result.LatestVersion = cache.LatestVersion
-			bc.result.HasUpdate = CompareVersions(currentVersion, cache.LatestVersion)
+			bc.result.HasUpdate = HasNewerVersion(currentVersion, cache.LatestVersion, channel)
 			return
 		}
 
-		release, err := FetchLatestRelease(context.Background())
+		release, err := FetchLatestRelease(context.Background(), channel)
 		if err != nil {
 			bc.result.Err = err
 			return
 		}
 
-		bc.result.LatestVersion = release.TagName
-		bc.result.HasUpdate = CompareVersions(currentVersion, release.TagName)
+		latestVersion := release.Version()
+		bc.result.LatestVersion = latestVersion
+		bc.result.HasUpdate = HasNewerVersion(currentVersion, latestVersion, channel)
 
 		// Update cache regardless of whether there's an update
 		_ = SaveCache(&CacheFile{
 			LastCheck:     time.Now(),
-			LatestVersion: release.TagName,
+			LatestVersion: latestVersion,
+			Channel:       channel,
 		})
 	}()
 

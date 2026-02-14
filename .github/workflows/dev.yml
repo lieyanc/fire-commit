@@ -1,0 +1,106 @@
+name: Dev Build
+
+on:
+  push:
+    branches:
+      - master
+    tags-ignore:
+      - '**'
+
+permissions:
+  contents: write
+
+jobs:
+  dev-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Compute version
+        id: version
+        run: |
+          DEV_VERSION="dev-$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+          echo "DEV_VERSION=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-build
+        run: |
+          mkdir -p dist
+          DEV_VERSION="${{ steps.version.outputs.DEV_VERSION }}"
+
+          platforms=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            IFS='/' read -r GOOS GOARCH <<< "$platform"
+            export GOOS GOARCH
+
+            BIN_NAME="firecommit"
+            if [ "$GOOS" = "windows" ]; then
+              BIN_NAME="firecommit.exe"
+            fi
+
+            OUT_DIR="dist/fire-commit_dev_${GOOS}_${GOARCH}"
+            mkdir -p "$OUT_DIR"
+
+            echo "Building for ${GOOS}/${GOARCH}..."
+            go build -ldflags "-s -w -X main.version=${DEV_VERSION}" \
+              -o "${OUT_DIR}/${BIN_NAME}" ./cmd/firecommit
+
+            # Create symlinks (copies on Windows)
+            if [ "$GOOS" = "windows" ]; then
+              cp "${OUT_DIR}/${BIN_NAME}" "${OUT_DIR}/fcmt.exe"
+              cp "${OUT_DIR}/${BIN_NAME}" "${OUT_DIR}/git-fire-commit.exe"
+            else
+              ln -sf firecommit "${OUT_DIR}/fcmt"
+              ln -sf firecommit "${OUT_DIR}/git-fire-commit"
+            fi
+
+            # Archive
+            pushd dist > /dev/null
+            DIR_NAME="fire-commit_dev_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              zip -r "${DIR_NAME}.zip" "$DIR_NAME"
+            else
+              tar czf "${DIR_NAME}.tar.gz" "$DIR_NAME"
+            fi
+            popd > /dev/null
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Delete old dev release
+        run: gh release delete dev --yes --cleanup-tag || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create dev pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: ${{ steps.version.outputs.DEV_VERSION }}
+          prerelease: true
+          body: |
+            Automated dev build from `master`.
+
+            **Version:** `${{ steps.version.outputs.DEV_VERSION }}`
+            **Commit:** ${{ github.sha }}
+
+            > This is a pre-release build and may be unstable.
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

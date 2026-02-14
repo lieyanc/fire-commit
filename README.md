@@ -12,7 +12,17 @@ Analyzes your staged git diff, streams multiple commit message suggestions via L
 curl -fsSL https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.sh | bash
 ```
 
-This downloads the latest release to `~/.fire-commit/bin/` and configures your shell PATH.
+This downloads the latest release to `~/.fire-commit/bin/` and configures your shell PATH. An interactive menu lets you choose between the **latest** (default, includes dev builds) and **stable** channels.
+
+For non-interactive use:
+
+```sh
+# Install from dev channel (default)
+curl -fsSL https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.sh | bash -s -- --latest
+
+# Install from stable channel only
+curl -fsSL https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.sh | bash -s -- --stable
+```
 
 **From source** (requires Go 1.25+):
 
@@ -98,6 +108,7 @@ generation:
   num_suggestions: 3          # number of suggestions to generate
   language: en                # commit message language (en, zh, ja, ko, es, fr, de, ru)
   max_diff_lines: 500         # truncate diff beyond this
+update_channel: latest        # "latest" (dev + stable) or "stable"
 ```
 
 ## Auto-Update
@@ -110,6 +121,21 @@ Run `firecommit update` to upgrade.
 ```
 
 Run `firecommit update` to download and replace the binary in-place.
+
+### Update Channels
+
+fire-commit supports two update channels:
+
+| Channel | Description |
+|---------|-------------|
+| `latest` | Includes dev builds and stable releases (default) |
+| `stable` | Only stable tagged releases |
+
+The channel is set during installation and stored in `update_channel` in your config file. Both `firecommit update` and the background update check respect this setting.
+
+### Dev Builds
+
+Every push to `master` triggers an automated dev build. These are published as pre-releases under the rolling `dev` tag with version strings like `dev-20260214-abc1234`.
 
 ## Building
 

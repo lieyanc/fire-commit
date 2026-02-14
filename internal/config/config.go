@@ -25,6 +25,7 @@ type Config struct {
 	DefaultProvider string                    `yaml:"default_provider"`
 	Providers       map[string]ProviderConfig `yaml:"providers"`
 	Generation      GenerationConfig          `yaml:"generation"`
+	UpdateChannel   string                    `yaml:"update_channel"`
 }
 
 // DefaultConfig returns a config with sensible defaults.
@@ -37,6 +38,7 @@ func DefaultConfig() *Config {
 			Language:       "en",
 			MaxDiffLines:   500,
 		},
+		UpdateChannel: "latest",
 	}
 }
 

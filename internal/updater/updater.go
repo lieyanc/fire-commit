@@ -14,13 +14,30 @@ import (
 const (
 	repoOwner = "lieyanc"
 	repoName  = "fire-commit"
-	releaseURL = "https://api.github.com/repos/" + repoOwner + "/" + repoName + "/releases/latest"
+	apiBase   = "https://api.github.com/repos/" + repoOwner + "/" + repoName
+
+	// ChannelLatest includes dev pre-releases and stable releases.
+	ChannelLatest = "latest"
+	// ChannelStable only includes stable (non-pre-release) releases.
+	ChannelStable = "stable"
 )
 
 // Release represents a GitHub release.
 type Release struct {
-	TagName string  `json:"tag_name"`
-	Assets  []Asset `json:"assets"`
+	TagName    string  `json:"tag_name"`
+	Name       string  `json:"name"`
+	Prerelease bool    `json:"prerelease"`
+	Assets     []Asset `json:"assets"`
+}
+
+// Version returns the version string for this release.
+// For dev pre-releases (tag "dev"), returns the release Name (e.g. "dev-20260214-abc1234").
+// For stable releases, returns the TagName.
+func (r *Release) Version() string {
+	if r.Prerelease && r.TagName == "dev" {
+		return r.Name
+	}
+	return r.TagName
 }
 
 // Asset represents a release asset.
@@ -37,12 +54,22 @@ type CheckResult struct {
 	Err            error
 }
 
-// FetchLatestRelease fetches the latest release from GitHub.
-func FetchLatestRelease(ctx context.Context) (*Release, error) {
+// FetchLatestRelease fetches the latest release from GitHub based on the channel.
+// For "stable", it fetches /releases/latest (GitHub excludes pre-releases).
+// For "latest", it fetches /releases?per_page=10 and returns the first element.
+func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
+	var url string
+	switch channel {
+	case ChannelStable:
+		url = apiBase + "/releases/latest"
+	default:
+		url = apiBase + "/releases?per_page=10"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +85,38 @@ func FetchLatestRelease(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
 
-	var release Release
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if channel == ChannelStable {
+		var release Release
+		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+			return nil, err
+		}
+		return &release, nil
+	}
+
+	// Latest channel: decode as array, return first
+	var releases []Release
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, err
 	}
-	return &release, nil
+	if len(releases) == 0 {
+		return nil, fmt.Errorf("no releases found")
+	}
+	return &releases[0], nil
+}
+
+// HasNewerVersion checks if the latest version is newer than the current version.
+// For stable channel, uses semver comparison.
+// For latest channel, uses string inequality (any difference means update available).
+// Returns false if current is "dev" (local development build).
+func HasNewerVersion(current, latest, channel string) bool {
+	if current == "dev" || latest == "" {
+		return false
+	}
+	if channel == ChannelStable {
+		return CompareVersions(current, latest)
+	}
+	// Latest channel: any difference means an update is available
+	return current != latest
 }
 
 // CompareVersions compares two semver version strings.
@@ -107,7 +161,28 @@ func parseVersion(v string) []int {
 	return nums
 }
 
+// FindAssetForPlatform finds a release asset matching the current platform by suffix.
+// It looks for assets ending in _{os}_{arch}.tar.gz or _{os}_{arch}.zip.
+func FindAssetForPlatform(assets []Asset) *Asset {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+
+	ext := "tar.gz"
+	if goos == "windows" {
+		ext = "zip"
+	}
+
+	suffix := fmt.Sprintf("_%s_%s.%s", goos, goarch, ext)
+	for i := range assets {
+		if strings.HasSuffix(assets[i].Name, suffix) {
+			return &assets[i]
+		}
+	}
+	return nil
+}
+
 // AssetNameForPlatform returns the expected asset filename for the current platform.
+// Deprecated: use FindAssetForPlatform instead.
 func AssetNameForPlatform(version string) string {
 	version = strings.TrimPrefix(version, "v")
 	os := runtime.GOOS
