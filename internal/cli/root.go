@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/lieyanc/fire-commit/internal/config"
 	"github.com/lieyanc/fire-commit/internal/git"
@@ -22,6 +23,13 @@ func Execute() error {
 }
 
 func runDefault(cmd *cobra.Command, args []string) error {
+	// Show version
+	versionStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FF6B35"))
+	fmt.Println(versionStyle.Render(fmt.Sprintf("🔥 fire-commit %s", appVersion)))
+	fmt.Println()
+
 	// Step 1: Check or create config
 	var cfg *config.Config
 	if !config.Exists() {

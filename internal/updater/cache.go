@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	cacheDir  = "firecommit"
-	cacheFile = "update-check.json"
-	checkInterval = 24 * time.Hour
+	cacheDir      = "firecommit"
+	cacheFile     = "update-check.json"
+	stableCheckInterval = 24 * time.Hour
+	latestCheckInterval = 3 * time.Hour
 )
 
 // CacheFile stores the last update check state.
@@ -58,5 +59,9 @@ func ShouldCheck(cf *CacheFile, currentChannel string) bool {
 	if cf.Channel != currentChannel {
 		return true
 	}
-	return time.Since(cf.LastCheck) > checkInterval
+	interval := stableCheckInterval
+	if currentChannel == ChannelLatest {
+		interval = latestCheckInterval
+	}
+	return time.Since(cf.LastCheck) > interval
 }

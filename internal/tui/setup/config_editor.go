@@ -10,33 +10,95 @@ import (
 )
 
 // RunConfigEditor opens an interactive TUI for editing the current configuration.
-// All fields are pre-filled with current values. Returns the updated config (already saved).
+// It presents a main menu where the user can freely choose which section to edit.
+// Changes are only saved when the user selects "Save & Exit".
 func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 	fmt.Println()
 	fmt.Println(titleStyle.Render("🔥 fire-commit configuration"))
-	fmt.Println(subtitleStyle.Render("   Edit your settings below."))
 	fmt.Println()
 
-	// ── Step 1: Select provider ──
+	for {
+		var choice string
+
+		displayNames := llm.ProviderDisplayNames()
+		providerSummary := "not configured"
+		if cfg.DefaultProvider != "" {
+			if p, ok := cfg.Providers[cfg.DefaultProvider]; ok {
+				providerSummary = fmt.Sprintf("%s / %s", displayNames[cfg.DefaultProvider], p.Model)
+			} else {
+				providerSummary = displayNames[cfg.DefaultProvider]
+			}
+		}
+		genSummary := fmt.Sprintf("%s, %d suggestions, %d lines",
+			cfg.Generation.Language, cfg.Generation.NumSuggestions, cfg.Generation.MaxDiffLines)
+		ch := cfg.UpdateChannel
+		if ch == "" {
+			ch = "latest"
+		}
+		updateSummary := fmt.Sprintf("channel: %s", ch)
+
+		menu := huh.NewSelect[string]().
+			Title("What would you like to configure?").
+			Options(
+				huh.NewOption(fmt.Sprintf("Provider Settings   (%s)", providerSummary), "provider"),
+				huh.NewOption(fmt.Sprintf("Generation Settings  (%s)", genSummary), "generation"),
+				huh.NewOption(fmt.Sprintf("Update Settings     (%s)", updateSummary), "update"),
+				huh.NewOption("Save & Exit", "save"),
+			).
+			Value(&choice)
+
+		if err := huh.NewForm(huh.NewGroup(menu)).Run(); err != nil {
+			return cfg, err
+		}
+
+		switch choice {
+		case "provider":
+			if err := editProviderSettings(cfg); err != nil {
+				return cfg, err
+			}
+		case "generation":
+			if err := editGenerationSettings(cfg); err != nil {
+				return cfg, err
+			}
+		case "update":
+			if err := editUpdateSettings(cfg); err != nil {
+				return cfg, err
+			}
+		case "save":
+			cfg.ConfigVersion = config.CurrentConfigVersion
+			if err := config.Save(cfg); err != nil {
+				return cfg, fmt.Errorf("failed to save config: %w", err)
+			}
+			fmt.Println()
+			fmt.Println(titleStyle.Render("✓ Configuration saved!"))
+			fmt.Println()
+			return cfg, nil
+		}
+	}
+}
+
+// editProviderSettings runs the provider selection and details forms.
+// It modifies cfg in-place. Used by both RunConfigEditor and RunWizard.
+func editProviderSettings(cfg *config.Config) error {
 	providerName := cfg.DefaultProvider
 	names := llm.ProviderNames()
 	displayNames := llm.ProviderDisplayNames()
 
-	providerOptions := make([]huh.Option[string], len(names))
+	options := make([]huh.Option[string], len(names))
 	for i, name := range names {
-		providerOptions[i] = huh.NewOption(displayNames[name], name)
+		options[i] = huh.NewOption(displayNames[name], name)
 	}
 
 	providerSelect := huh.NewSelect[string]().
-		Title("LLM Provider").
-		Options(providerOptions...).
+		Title("Select your LLM provider").
+		Options(options...).
 		Value(&providerName)
 
 	if err := huh.NewForm(huh.NewGroup(providerSelect)).Run(); err != nil {
-		return cfg, err
+		return err
 	}
 
-	// ── Step 2: Provider details (API key, model, base URL) ──
+	// Pre-fill from existing provider config
 	var apiKey, model, baseURL string
 	if p, ok := cfg.Providers[providerName]; ok {
 		apiKey = p.APIKey
@@ -45,7 +107,7 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 	}
 
 	apiKeyInput := huh.NewInput().
-		Title(fmt.Sprintf("%s API Key", displayNames[providerName])).
+		Title(fmt.Sprintf("Enter your %s API key", displayNames[providerName])).
 		Value(&apiKey).
 		EchoMode(huh.EchoModePassword).
 		Validate(func(s string) error {
@@ -55,11 +117,11 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 			return nil
 		})
 
-	providerFields := []huh.Field{apiKeyInput}
+	fields := []huh.Field{apiKeyInput}
 
 	if providerName == "custom" {
 		baseURLInput := huh.NewInput().
-			Title("API Base URL").
+			Title("Enter the OpenAI-compatible API base URL").
 			Placeholder("https://api.example.com/v1").
 			Value(&baseURL).
 			Validate(func(s string) error {
@@ -68,7 +130,7 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 				}
 				return nil
 			})
-		providerFields = append(providerFields, baseURLInput)
+		fields = append(fields, baseURLInput)
 	}
 
 	defaultModel := llm.DefaultModel(providerName)
@@ -76,13 +138,35 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 		Title("Model name").
 		Placeholder(defaultModel).
 		Value(&model)
-	providerFields = append(providerFields, modelInput)
+	fields = append(fields, modelInput)
 
-	if err := huh.NewForm(huh.NewGroup(providerFields...)).Run(); err != nil {
-		return cfg, err
+	if err := huh.NewForm(huh.NewGroup(fields...)).Run(); err != nil {
+		return err
 	}
 
-	// ── Step 3: Generation settings ──
+	if model == "" {
+		model = defaultModel
+	}
+
+	// Apply to cfg
+	provCfg := config.ProviderConfig{
+		APIKey: apiKey,
+		Model:  model,
+	}
+	if providerName == "custom" {
+		provCfg.BaseURL = baseURL
+	}
+
+	cfg.DefaultProvider = providerName
+	if cfg.Providers == nil {
+		cfg.Providers = make(map[string]config.ProviderConfig)
+	}
+	cfg.Providers[providerName] = provCfg
+	return nil
+}
+
+// editGenerationSettings runs the generation settings form.
+func editGenerationSettings(cfg *config.Config) error {
 	language := cfg.Generation.Language
 	numSuggestions := cfg.Generation.NumSuggestions
 	maxDiffStr := strconv.Itoa(cfg.Generation.MaxDiffLines)
@@ -121,10 +205,19 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 		})
 
 	if err := huh.NewForm(huh.NewGroup(languageSelect, numSugSelect, maxDiffInput)).Run(); err != nil {
-		return cfg, err
+		return err
 	}
 
-	// ── Step 4: Update settings ──
+	cfg.Generation.Language = language
+	cfg.Generation.NumSuggestions = numSuggestions
+	if n, err := strconv.Atoi(maxDiffStr); err == nil {
+		cfg.Generation.MaxDiffLines = n
+	}
+	return nil
+}
+
+// editUpdateSettings runs the update settings form.
+func editUpdateSettings(cfg *config.Config) error {
 	updateChannel := cfg.UpdateChannel
 	if updateChannel == "" {
 		updateChannel = "latest"
@@ -152,43 +245,10 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 		Value(&autoUpdate)
 
 	if err := huh.NewForm(huh.NewGroup(channelSelect, autoUpdateSelect)).Run(); err != nil {
-		return cfg, err
+		return err
 	}
 
-	// ── Apply & save ──
-	if model == "" {
-		model = defaultModel
-	}
-
-	provCfg := config.ProviderConfig{
-		APIKey: apiKey,
-		Model:  model,
-	}
-	if providerName == "custom" {
-		provCfg.BaseURL = baseURL
-	}
-
-	cfg.DefaultProvider = providerName
-	if cfg.Providers == nil {
-		cfg.Providers = make(map[string]config.ProviderConfig)
-	}
-	cfg.Providers[providerName] = provCfg
-	cfg.Generation.Language = language
-	cfg.Generation.NumSuggestions = numSuggestions
-	if n, err := strconv.Atoi(maxDiffStr); err == nil {
-		cfg.Generation.MaxDiffLines = n
-	}
 	cfg.UpdateChannel = updateChannel
 	cfg.AutoUpdate = autoUpdate
-	cfg.ConfigVersion = config.CurrentConfigVersion
-
-	if err := config.Save(cfg); err != nil {
-		return cfg, fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Println()
-	fmt.Println(titleStyle.Render("✓ Configuration saved!"))
-	fmt.Println()
-
-	return cfg, nil
+	return nil
 }
