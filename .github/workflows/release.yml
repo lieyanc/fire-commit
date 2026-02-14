@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-build
+        run: |
+          mkdir -p dist
+          VERSION="${{ steps.version.outputs.VERSION }}"
+
+          platforms=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            IFS='/' read -r GOOS GOARCH <<< "$platform"
+            export GOOS GOARCH
+
+            BIN_NAME="firecommit"
+            if [ "$GOOS" = "windows" ]; then
+              BIN_NAME="firecommit.exe"
+            fi
+
+            OUT_DIR="dist/fire-commit_${VERSION}_${GOOS}_${GOARCH}"
+            mkdir -p "$OUT_DIR"
+
+            echo "Building for ${GOOS}/${GOARCH}..."
+            go build -ldflags "-s -w -X main.version=v${VERSION}" \
+              -o "${OUT_DIR}/${BIN_NAME}" ./cmd/firecommit
+
+            # Create symlinks (copies on Windows)
+            if [ "$GOOS" = "windows" ]; then
+              cp "${OUT_DIR}/${BIN_NAME}" "${OUT_DIR}/fcmt.exe"
+              cp "${OUT_DIR}/${BIN_NAME}" "${OUT_DIR}/git-fire-commit.exe"
+            else
+              ln -sf firecommit "${OUT_DIR}/fcmt"
+              ln -sf firecommit "${OUT_DIR}/git-fire-commit"
+            fi
+
+            # Archive
+            pushd dist > /dev/null
+            DIR_NAME="fire-commit_${VERSION}_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              zip -r "${DIR_NAME}.zip" "$DIR_NAME"
+            else
+              tar czf "${DIR_NAME}.tar.gz" "$DIR_NAME"
+            fi
+            popd > /dev/null
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

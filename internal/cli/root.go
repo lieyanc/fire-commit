@@ -10,6 +10,10 @@ import (
 	"github.com/lieyanc/fire-commit/internal/tui/setup"
 )
 
+// RanDefault is set to true when the default command (TUI) runs.
+// Used by main to decide whether to show the update notice.
+var RanDefault bool
+
 var rootCmd = &cobra.Command{
 	Use:   "firecommit",
 	Short: "Generate beautiful commit messages with AI",
@@ -22,6 +26,8 @@ func Execute() error {
 }
 
 func runDefault(cmd *cobra.Command, args []string) error {
+	RanDefault = true
+
 	// Step 1: Check or create config
 	var cfg *config.Config
 	if !config.Exists() {
