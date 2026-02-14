@@ -141,8 +141,14 @@ info "Installing to ${INSTALL_DIR}..."
 mkdir -p "$INSTALL_DIR"
 tar xzf "${TMPDIR}/${ARCHIVE}" -C "$TMPDIR"
 
+# Find the extracted binary (may be in a subdirectory)
+EXTRACTED_BIN=$(find "$TMPDIR" -name firecommit -type f | head -1)
+if [ -z "$EXTRACTED_BIN" ]; then
+    error "Could not find firecommit binary in archive."
+fi
+
 # Copy binary and create symlinks
-cp "${TMPDIR}/firecommit" "${INSTALL_DIR}/firecommit"
+cp "$EXTRACTED_BIN" "${INSTALL_DIR}/firecommit"
 chmod +x "${INSTALL_DIR}/firecommit"
 ln -sf firecommit "${INSTALL_DIR}/fcmt"
 ln -sf firecommit "${INSTALL_DIR}/git-fire-commit"

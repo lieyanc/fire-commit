@@ -83,11 +83,11 @@ firecommit config setup # re-run the setup wizard
 
 | Provider | Default Model | Notes |
 |----------|--------------|-------|
-| OpenAI | `gpt-4o-mini` | |
-| Anthropic | `claude-sonnet-4-20250514` | |
-| Google Gemini | `gemini-2.0-flash` | OpenAI-compatible endpoint |
-| Cerebras | `llama-4-scout-17b-16e-instruct` | |
-| SiliconFlow | `Qwen/Qwen3-8B` | |
+| OpenAI | `gpt-5-nano` | |
+| Anthropic | `claude-haiku-4-5` | |
+| Google Gemini | `gemini-2.5-flash-lite` | OpenAI-compatible endpoint |
+| Cerebras | `gpt-oss-120b` | |
+| SiliconFlow | `Qwen/Qwen3-Next-80B-A3B-Instruct` | |
 | Custom | — | Any OpenAI-compatible API |
 
 ## Configuration
@@ -99,7 +99,7 @@ default_provider: openai
 providers:
   openai:
     api_key: sk-...
-    model: gpt-4o-mini        # optional, uses default if omitted
+    model: gpt-5-nano        # optional, uses default if omitted
   custom:
     api_key: your-key
     model: your-model

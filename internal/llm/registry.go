@@ -15,11 +15,11 @@ var providerBaseURLs = map[string]string{
 
 // Default models for each provider.
 var defaultModels = map[string]string{
-	"openai":      "gpt-4o-mini",
-	"anthropic":   "claude-sonnet-4-20250514",
-	"gemini":      "gemini-2.0-flash",
-	"cerebras":    "llama-4-scout-17b-16e-instruct",
-	"siliconflow": "Qwen/Qwen3-8B",
+	"openai":      "gpt-5-nano",
+	"anthropic":   "claude-haiku-4-5",
+	"gemini":      "gemini-2.5-flash-lite",
+	"cerebras":    "gpt-oss-120b",
+	"siliconflow": "Qwen/Qwen3-Next-80B-A3B-Instruct",
 }
 
 // ProviderNames returns the list of supported provider names.
