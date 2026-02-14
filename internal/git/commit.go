@@ -34,3 +34,33 @@ func CurrentBranch() (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// Tag creates a git tag with the given version string.
+func Tag(version string) error {
+	cmd := exec.Command("git", "tag", version)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git tag: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// PushTag pushes a specific tag to the remote.
+func PushTag(tag string) error {
+	cmd := exec.Command("git", "push", "origin", tag)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git push tag: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// LatestTag returns the most recent tag reachable from HEAD.
+// Returns an empty string if no tags exist.
+func LatestTag() string {
+	out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}

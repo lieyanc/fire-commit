@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lieyanc/fire-commit/internal/config"
 	"github.com/lieyanc/fire-commit/internal/llm"
@@ -46,12 +47,19 @@ type Model struct {
 
 	// Confirm
 	confirmCursor int // 0=commit+push, 1=commit only, 2=cancel
+	versionTag    string
+	tagInput      textinput.Model
+	editingTag    bool
 
 	// Result
-	committed bool
-	pushed    bool
-	commitErr error
-	pushErr   error
+	committed  bool
+	pushed     bool
+	commitErr  error
+	pushErr    error
+	tagged     bool
+	tagErr     error
+	tagPushed  bool
+	tagPushErr error
 
 	// Window
 	width  int
@@ -81,6 +89,12 @@ type commitDoneMsg struct{ err error }
 // pushDoneMsg signals the push operation completed.
 type pushDoneMsg struct{ err error }
 
+// tagDoneMsg signals the tag creation completed.
+type tagDoneMsg struct{ err error }
+
+// tagPushDoneMsg signals the tag push completed.
+type tagPushDoneMsg struct{ err error }
+
 // NewModel creates a new TUI model.
 func NewModel(cfg *config.Config, diff, stat string) Model {
 	s := spinner.New()
@@ -93,6 +107,11 @@ func NewModel(cfg *config.Config, diff, stat string) Model {
 	ta.CharLimit = 500
 	ta.SetWidth(60)
 	ta.SetHeight(5)
+
+	ti := textinput.New()
+	ti.Placeholder = "v1.0.0"
+	ti.CharLimit = 50
+	ti.Width = 30
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -110,6 +129,7 @@ func NewModel(cfg *config.Config, diff, stat string) Model {
 		messages:      make([]string, n),
 		total:         n,
 		editArea:      ta,
+		tagInput:      ti,
 		confirmCursor: 0,
 		ctx:           ctx,
 		cancel:        cancel,
