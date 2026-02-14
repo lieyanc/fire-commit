@@ -1,2 +1,131 @@
 # fire-commit
-AI generated commit message
+
+AI-powered conventional commit message generator with a beautiful TUI.
+
+Analyzes your staged git diff, streams multiple commit message suggestions via LLM, and lets you pick, edit, commit, and push — all without leaving the terminal.
+
+## Install
+
+**One-line install** (Linux / macOS):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.sh | bash
+```
+
+This downloads the latest release to `~/.fire-commit/bin/` and configures your shell PATH.
+
+**From source** (requires Go 1.25+):
+
+```sh
+git clone https://github.com/lieyanc/fire-commit.git
+cd fire-commit
+make install
+```
+
+**Binaries**: Download pre-built archives from the [Releases](https://github.com/lieyanc/fire-commit/releases) page.
+
+## Usage
+
+```sh
+# Run in any git repo with changes
+firecommit
+
+# Also available as
+fcmt
+git fire-commit   # works as a git subcommand: git fire-commit
+```
+
+On first run, an interactive setup wizard will ask you to choose an LLM provider and enter your API key.
+
+### Workflow
+
+1. **Stage** — if nothing is staged, fire-commit auto-stages all changes
+2. **Generate** — streams commit message suggestions from your configured LLM
+3. **Select** — pick a suggestion with `j`/`k` and `Enter`
+4. **Edit** — press `e` to customize the message
+5. **Commit** — confirm and optionally push with `p`
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move up |
+| `↓` / `j` | Move down |
+| `Enter` | Confirm |
+| `e` | Edit message |
+| `r` | Regenerate suggestions |
+| `p` | Toggle push |
+| `Tab` | Switch |
+| `Esc` | Back |
+| `q` | Quit |
+
+### Commands
+
+```sh
+firecommit              # default — generate & commit
+firecommit version      # print version
+firecommit update       # self-update to latest release
+firecommit config       # show current configuration
+firecommit config setup # re-run the setup wizard
+```
+
+## Supported Providers
+
+| Provider | Default Model | Notes |
+|----------|--------------|-------|
+| OpenAI | `gpt-4o-mini` | |
+| Anthropic | `claude-sonnet-4-20250514` | |
+| Google Gemini | `gemini-2.0-flash` | OpenAI-compatible endpoint |
+| Cerebras | `llama-4-scout-17b-16e-instruct` | |
+| SiliconFlow | `Qwen/Qwen3-8B` | |
+| Custom | — | Any OpenAI-compatible API |
+
+## Configuration
+
+Config is stored at `~/.config/firecommit/config.yaml` (follows XDG). Override with `FIRECOMMIT_CONFIG` env var.
+
+```yaml
+default_provider: openai
+providers:
+  openai:
+    api_key: sk-...
+    model: gpt-4o-mini        # optional, uses default if omitted
+  custom:
+    api_key: your-key
+    model: your-model
+    base_url: https://your-endpoint/v1
+generation:
+  num_suggestions: 3          # number of suggestions to generate
+  language: en                # commit message language (en, zh, ja, ko, es, fr, de, ru)
+  max_diff_lines: 500         # truncate diff beyond this
+```
+
+## Auto-Update
+
+When running a release build, fire-commit checks for updates in the background (at most once every 24 hours). If a newer version is found, a notice is printed after the TUI exits:
+
+```
+A new version of fire-commit is available: v0.1.0 -> v0.2.0
+Run `firecommit update` to upgrade.
+```
+
+Run `firecommit update` to download and replace the binary in-place.
+
+## Building
+
+```sh
+make build     # build to ./bin/
+make install   # build and install to ~/.fire-commit/bin/
+make dist      # cross-compile for all platforms
+make clean     # remove build artifacts
+```
+
+Version is injected at build time via `-ldflags`:
+
+```sh
+go build -ldflags "-s -w -X main.version=v1.0.0" -o firecommit ./cmd/firecommit
+```
+
+## License
+
+MIT
