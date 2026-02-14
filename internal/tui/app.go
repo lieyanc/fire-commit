@@ -45,7 +45,7 @@ type Model struct {
 	editing  bool
 
 	// Confirm
-	confirmCursor int // 0=commit only, 1=commit+push, 2=cancel
+	confirmCursor int // 0=commit+push, 1=commit only, 2=cancel
 
 	// Result
 	committed bool

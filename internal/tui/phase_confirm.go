@@ -23,12 +23,12 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.confirmCursor = (m.confirmCursor + 2) % 3
 		case key.Matches(msg, keys.Enter):
 			switch m.confirmCursor {
-			case 0: // Commit only
-				m.wantPush = false
+			case 0: // Commit & Push
+				m.wantPush = true
 				m.phase = PhaseCommitting
 				return m, tea.Batch(m.spinner.Tick, m.doCommit())
-			case 1: // Commit & Push
-				m.wantPush = true
+			case 1: // Commit only
+				m.wantPush = false
 				m.phase = PhaseCommitting
 				return m, tea.Batch(m.spinner.Tick, m.doCommit())
 			case 2: // Cancel
@@ -51,7 +51,7 @@ func (m Model) viewConfirm() string {
 	b.WriteString(highlightStyle.Render("  " + m.messages[m.cursor]))
 	b.WriteString("\n\n")
 
-	options := []string{"Commit only", "Commit & Push", "Cancel"}
+	options := []string{"Commit & Push", "Commit only", "Cancel"}
 	for i, opt := range options {
 		if i == m.confirmCursor {
 			b.WriteString(cursorStyle.Render("  > "))
