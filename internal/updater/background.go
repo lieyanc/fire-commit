@@ -74,8 +74,8 @@ func (bc *BackgroundChecker) NoticeString() string {
 		return ""
 	}
 
-	versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB347")).Bold(true)
-	commandStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA07A")).Bold(true)
+	versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#52B0FF")).Bold(true)
+	commandStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7EC8FF")).Bold(true)
 
 	content := fmt.Sprintf(
 		"Update available: %s → %s\nRun %s to upgrade.",
@@ -86,7 +86,7 @@ func (bc *BackgroundChecker) NoticeString() string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#FF6B35")).
+		BorderForeground(lipgloss.Color("#018EEE")).
 		Padding(0, 1)
 
 	return "\n" + box.Render(content) + "\n"

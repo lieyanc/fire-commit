@@ -11,10 +11,10 @@ import (
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FF6B35"))
+			Foreground(lipgloss.Color("#018EEE"))
 
 	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFB347"))
+			Foreground(lipgloss.Color("#52B0FF"))
 )
 
 // RunWizard runs the first-time setup wizard and returns the configured Config.

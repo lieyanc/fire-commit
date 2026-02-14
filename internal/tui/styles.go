@@ -3,36 +3,36 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Fire theme colors
-	colorFire      = lipgloss.Color("#FF6B35")
-	colorWarm      = lipgloss.Color("#FFB347")
-	colorEmber     = lipgloss.Color("#FF4500")
-	colorDim       = lipgloss.Color("#666666")
-	colorText      = lipgloss.Color("#EEEEEE")
-	colorSuccess   = lipgloss.Color("#73D216")
-	colorError     = lipgloss.Color("#EF2929")
-	colorHighlight = lipgloss.Color("#FFA07A")
+	// Brand color palette — based on primary #018EEE
+	colorPrimary   = lipgloss.Color("#018EEE") // Brand blue
+	colorAccent    = lipgloss.Color("#52B0FF") // Light blue — selected, spinner
+	colorDeep      = lipgloss.Color("#005FBB") // Deep blue — cursor, emphasis
+	colorHighlight = lipgloss.Color("#7EC8FF") // Pale blue — highlights
+	colorDim       = lipgloss.Color("#666666") // Gray — secondary text
+	colorText      = lipgloss.Color("#EEEEEE") // Light gray — body text
+	colorSuccess   = lipgloss.Color("#2ECC71") // Green — success
+	colorError     = lipgloss.Color("#EF2929") // Red — error
 
 	// Styles
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorFire).
+			Foreground(colorPrimary).
 			MarginBottom(1)
 
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorFire).
+			BorderForeground(colorPrimary).
 			Padding(1, 2)
 
 	selectedStyle = lipgloss.NewStyle().
-			Foreground(colorWarm).
+			Foreground(colorAccent).
 			Bold(true)
 
 	normalStyle = lipgloss.NewStyle().
 			Foreground(colorDim)
 
 	cursorStyle = lipgloss.NewStyle().
-			Foreground(colorEmber).
+			Foreground(colorDeep).
 			Bold(true)
 
 	helpStyle = lipgloss.NewStyle().

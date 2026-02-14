@@ -26,7 +26,7 @@ func runDefault(cmd *cobra.Command, args []string) error {
 	// Show version
 	versionStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#FF6B35"))
+		Foreground(lipgloss.Color("#018EEE"))
 	fmt.Println(versionStyle.Render(fmt.Sprintf("🔥 fire-commit %s", appVersion)))
 	fmt.Println()
 
