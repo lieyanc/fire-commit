@@ -26,8 +26,8 @@ func main() {
 
 	err := cli.Execute()
 
-	// Show update notice after TUI exits, only for the default command
-	if checker != nil && cli.RanDefault {
+	// Show update notice after command exits
+	if checker != nil {
 		if notice := checker.NoticeString(); notice != "" {
 			fmt.Fprint(os.Stderr, notice)
 		}
