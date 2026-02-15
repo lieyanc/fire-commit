@@ -104,12 +104,30 @@ func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 	return &releases[0], nil
 }
 
+// IsDevVersion returns true for local dev builds ("dev") and CI dev builds
+// ("dev-YYYYMMDD-hash").
+func IsDevVersion(v string) bool {
+	return v == "dev" || strings.HasPrefix(v, "dev-")
+}
+
+// devVersionDate extracts the date portion from a dev version string like
+// "dev-20260215-abc1234" → "20260215". Returns "" if the format doesn't match.
+func devVersionDate(v string) string {
+	parts := strings.SplitN(v, "-", 3)
+	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
+}
+
 // HasNewerVersion checks if the latest version is newer than the current version.
-// For stable channel, uses semver comparison.
-// For latest channel, uses string inequality (any difference means update available).
-// For dev builds (current == "dev"), any published release is considered newer.
+//   - Same version string: no update.
+//   - Local "dev" build: any published release is newer.
+//   - Stable channel: semver comparison.
+//   - Latest channel with two dev versions: date comparison (YYYYMMDD).
+//   - Mixed (dev vs stable): semver comparison as fallback.
 func HasNewerVersion(current, latest, channel string) bool {
-	if latest == "" {
+	if latest == "" || current == latest {
 		return false
 	}
 	if current == "dev" {
@@ -118,8 +136,16 @@ func HasNewerVersion(current, latest, channel string) bool {
 	if channel == ChannelStable {
 		return CompareVersions(current, latest)
 	}
-	// Latest channel: any difference means an update is available
-	return current != latest
+	// Latest channel: dev versions use date comparison.
+	if IsDevVersion(current) && IsDevVersion(latest) {
+		curDate := devVersionDate(current)
+		latDate := devVersionDate(latest)
+		if curDate != "" && latDate != "" {
+			return latDate > curDate
+		}
+	}
+	// Fallback: semver comparison (works for stable→stable, mixed cases).
+	return CompareVersions(current, latest)
 }
 
 // CompareVersions compares two semver version strings.

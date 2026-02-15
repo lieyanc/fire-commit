@@ -3,7 +3,6 @@ package updater
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -15,7 +14,7 @@ type BackgroundChecker struct {
 }
 
 // StartBackgroundCheck launches a background goroutine that checks for updates.
-// It respects the 24h cache interval to avoid hitting the API on every run.
+// It respects a time-based throttle to avoid hitting the API on every run.
 // The channel parameter determines which releases to consider ("latest" or "stable").
 func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
 	bc := &BackgroundChecker{
@@ -27,17 +26,8 @@ func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
 
 		bc.result.CurrentVersion = currentVersion
 
-		cache, err := LoadCache()
-		if err != nil {
-			bc.result.Err = err
-			return
-		}
-
-		if !ShouldCheck(cache, channel) {
-			// Use cached result
-			bc.result.LatestVersion = cache.LatestVersion
-			bc.result.HasUpdate = HasNewerVersion(currentVersion, cache.LatestVersion, channel)
-			return
+		if !shouldCheck(channel) {
+			return // checked recently, skip
 		}
 
 		release, err := FetchLatestRelease(context.Background(), channel)
@@ -50,12 +40,7 @@ func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
 		bc.result.LatestVersion = latestVersion
 		bc.result.HasUpdate = HasNewerVersion(currentVersion, latestVersion, channel)
 
-		// Update cache regardless of whether there's an update
-		_ = SaveCache(&CacheFile{
-			LastCheck:     time.Now(),
-			LatestVersion: latestVersion,
-			Channel:       channel,
-		})
+		markChecked()
 	}()
 
 	return bc

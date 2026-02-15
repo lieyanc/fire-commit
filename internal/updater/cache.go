@@ -1,7 +1,6 @@
 package updater
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"time"
@@ -10,58 +9,31 @@ import (
 )
 
 const (
-	cacheDir      = "firecommit"
-	cacheFile     = "update-check.json"
-	stableCheckInterval = 24 * time.Hour
-	latestCheckInterval = 3 * time.Hour
+	checkIntervalStable = 24 * time.Hour
+	checkIntervalLatest = 3 * time.Hour
 )
 
-// CacheFile stores the last update check state.
-type CacheFile struct {
-	LastCheck     time.Time `json:"last_check"`
-	LatestVersion string    `json:"latest_version"`
-	Channel       string    `json:"channel,omitempty"`
+func lastCheckPath() string {
+	return filepath.Join(xdg.CacheHome, "firecommit", "last-update-check")
 }
 
-func cachePath() string {
-	return filepath.Join(xdg.CacheHome, cacheDir, cacheFile)
-}
-
-// LoadCache reads the update check cache from disk.
-func LoadCache() (*CacheFile, error) {
-	data, err := os.ReadFile(cachePath())
+// shouldCheck returns true if enough time has passed since the last update
+// check. This is a simple file-mtime-based throttle with no cached version.
+func shouldCheck(channel string) bool {
+	info, err := os.Stat(lastCheckPath())
 	if err != nil {
-		return &CacheFile{}, nil
-	}
-	var cf CacheFile
-	if err := json.Unmarshal(data, &cf); err != nil {
-		return &CacheFile{}, nil
-	}
-	return &cf, nil
-}
-
-// SaveCache writes the update check cache to disk.
-func SaveCache(cf *CacheFile) error {
-	p := cachePath()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	data, err := json.Marshal(cf)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(p, data, 0o644)
-}
-
-// ShouldCheck returns true if enough time has passed since the last check,
-// or if the channel has changed since the last check.
-func ShouldCheck(cf *CacheFile, currentChannel string) bool {
-	if cf.Channel != currentChannel {
 		return true
 	}
-	interval := stableCheckInterval
-	if currentChannel == ChannelLatest {
-		interval = latestCheckInterval
+	interval := checkIntervalStable
+	if channel == ChannelLatest {
+		interval = checkIntervalLatest
 	}
-	return time.Since(cf.LastCheck) > interval
+	return time.Since(info.ModTime()) > interval
+}
+
+// markChecked touches the last-check file to record that a check just happened.
+func markChecked() {
+	p := lastCheckPath()
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte{}, 0o644)
 }

@@ -77,10 +77,10 @@ func main() {
 }
 
 // autoUpdateMode returns "a" (auto-update), "y" (notify only), or "n" (skip).
-//   - Non-dev builds: always "a" (force auto-update).
-//   - Dev builds: respect config.AutoUpdate, default "y" (notify).
+//   - Stable (tagged) builds: always "a" (force auto-update).
+//   - Dev/pre-release builds: respect config.AutoUpdate, default "y" (notify).
 func autoUpdateMode(version string, cfg *config.Config, cfgErr error) string {
-	if version != "dev" {
+	if !updater.IsDevVersion(version) {
 		return "a"
 	}
 	if cfgErr != nil || cfg == nil {
