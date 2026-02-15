@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/lieyanc/fire-commit/internal/cli"
 	"github.com/lieyanc/fire-commit/internal/config"
@@ -27,9 +28,14 @@ func main() {
 	// Determine update timing: "before" or "after" (default)
 	timing := updateTiming(cfg, cfgErr)
 
+	// Don't auto-check when running explicit self-management commands.
+	// This prevents duplicate updates for "firecommit update", and avoids
+	// immediately re-upgrading after "firecommit rollback".
+	skipAutoCheck := shouldSkipAutoCheck(os.Args[1:])
+
 	// Start background update check unless disabled
 	var checker *updater.BackgroundChecker
-	if mode != "n" {
+	if mode != "n" && !skipAutoCheck {
 		checker = updater.StartBackgroundCheck(version, channel)
 	}
 
@@ -77,10 +83,10 @@ func main() {
 }
 
 // autoUpdateMode returns "a" (auto-update), "y" (notify only), or "n" (skip).
-//   - Stable (tagged) builds: always "a" (force auto-update).
-//   - Dev/pre-release builds: respect config.AutoUpdate, default "y" (notify).
+//   - Dev builds: always "a" (force auto-update).
+//   - Non-dev builds: respect config.AutoUpdate, default "y" (notify).
 func autoUpdateMode(version string, cfg *config.Config, cfgErr error) string {
-	if !updater.IsDevVersion(version) {
+	if updater.IsDevVersion(version) {
 		return "a"
 	}
 	if cfgErr != nil || cfg == nil {
@@ -107,4 +113,23 @@ func updateTiming(cfg *config.Config, cfgErr error) string {
 		return "before"
 	}
 	return "after"
+}
+
+// shouldSkipAutoCheck returns true for commands that manage versions directly.
+func shouldSkipAutoCheck(args []string) bool {
+	subcmd := firstSubcommand(args)
+	return subcmd == "update" || subcmd == "rollback"
+}
+
+func firstSubcommand(args []string) string {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		return a
+	}
+	return ""
 }

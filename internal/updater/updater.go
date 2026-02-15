@@ -31,7 +31,8 @@ type Release struct {
 }
 
 // Version returns the version string for this release.
-// For dev pre-releases (tag "dev"), returns the release Name (e.g. "dev-20260214-abc1234").
+// For dev pre-releases (tag "dev"), returns the release Name
+// (e.g. "dev-20260214-1234-abc1234").
 // For stable releases, returns the TagName.
 func (r *Release) Version() string {
 	if r.Prerelease && r.TagName == "dev" {
@@ -105,26 +106,47 @@ func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 }
 
 // IsDevVersion returns true for local dev builds ("dev") and CI dev builds
-// ("dev-YYYYMMDD-hash").
+// ("dev-YYYYMMDD-build-hash"). Legacy "dev-YYYYMMDD-hash" is still accepted.
 func IsDevVersion(v string) bool {
 	return v == "dev" || strings.HasPrefix(v, "dev-")
 }
 
-// devVersionDate extracts the date portion from a dev version string like
-// "dev-20260215-abc1234" → "20260215". Returns "" if the format doesn't match.
-func devVersionDate(v string) string {
-	parts := strings.SplitN(v, "-", 3)
-	if len(parts) >= 2 {
-		return parts[1]
+// parseDevVersion parses dev version strings:
+//   - New format:    dev-YYYYMMDD-build-hash
+//   - Legacy format: dev-YYYYMMDD-hash (build number treated as 0)
+func parseDevVersion(v string) (date string, build int, ok bool) {
+	if !IsDevVersion(v) || v == "dev" {
+		return "", 0, false
 	}
-	return ""
+
+	parts := strings.Split(v, "-")
+	if len(parts) < 3 || parts[0] != "dev" {
+		return "", 0, false
+	}
+
+	date = parts[1]
+	if date == "" {
+		return "", 0, false
+	}
+
+	// New format: dev-YYYYMMDD-<build>-<hash>
+	if len(parts) >= 4 {
+		n, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return "", 0, false
+		}
+		return date, n, true
+	}
+
+	// Legacy format: dev-YYYYMMDD-<hash>
+	return date, 0, true
 }
 
 // HasNewerVersion checks if the latest version is newer than the current version.
 //   - Same version string: no update.
 //   - Local "dev" build: any published release is newer.
 //   - Stable channel: semver comparison.
-//   - Latest channel with two dev versions: date comparison (YYYYMMDD).
+//   - Latest channel with two dev versions: date + build-number comparison.
 //   - Mixed (dev vs stable): semver comparison as fallback.
 func HasNewerVersion(current, latest, channel string) bool {
 	if latest == "" || current == latest {
@@ -136,10 +158,21 @@ func HasNewerVersion(current, latest, channel string) bool {
 	if channel == ChannelStable {
 		return CompareVersions(current, latest)
 	}
-	// Latest channel: dev versions use date comparison.
+	// Latest channel: dev versions use date + build number comparison.
 	if IsDevVersion(current) && IsDevVersion(latest) {
-		curDate := devVersionDate(current)
-		latDate := devVersionDate(latest)
+		curDate, curBuild, curOK := parseDevVersion(current)
+		latDate, latBuild, latOK := parseDevVersion(latest)
+		if curOK && latOK {
+			if latDate != curDate {
+				return latDate > curDate
+			}
+			return latBuild > curBuild
+		}
+		// If the current version is unparsable but latest is valid dev format,
+		// prefer upgrading to recover to a known format.
+		if latOK && !curOK {
+			return true
+		}
 		if curDate != "" && latDate != "" {
 			return latDate > curDate
 		}

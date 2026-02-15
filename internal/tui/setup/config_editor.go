@@ -244,7 +244,7 @@ func editUpdateSettings(cfg *config.Config) error {
 		Value(&updateChannel)
 
 	autoUpdateSelect := huh.NewSelect[string]().
-		Title("Auto-update mode (dev builds only)").
+		Title("Auto-update mode (non-dev builds only)").
 		Options(
 			huh.NewOption("Show update notice", "y"),
 			huh.NewOption("Auto-update without asking", "a"),

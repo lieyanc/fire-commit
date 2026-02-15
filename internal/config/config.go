@@ -31,11 +31,11 @@ type Config struct {
 	Providers       map[string]ProviderConfig `yaml:"providers"`
 	Generation      GenerationConfig          `yaml:"generation"`
 	UpdateChannel   string                    `yaml:"update_channel"`
-	// AutoUpdate controls automatic update behavior for dev builds.
-	// "y" = show update notice (default for dev builds)
+	// AutoUpdate controls automatic update behavior for non-dev builds.
+	// "y" = show update notice (default for non-dev builds)
 	// "n" = don't check for updates
 	// "a" = always auto-update without asking
-	// Non-dev builds ignore this and always auto-update.
+	// Dev builds ignore this and always auto-update.
 	AutoUpdate   string `yaml:"auto_update,omitempty"`
 	UpdateTiming string `yaml:"update_timing,omitempty"`
 }

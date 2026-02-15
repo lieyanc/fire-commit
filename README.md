@@ -107,13 +107,25 @@ providers:
 generation:
   num_suggestions: 3          # number of suggestions to generate
   language: en                # commit message language (en, zh, ja, ko, es, fr, de, ru)
-  max_diff_lines: 500         # truncate diff beyond this
+  max_diff_lines: 4096        # truncate diff beyond this
 update_channel: latest        # "latest" (dev + stable) or "stable"
+auto_update: y                # non-dev builds: y(notify), a(auto-update), n(skip checks)
+update_timing: after          # "after" (default) or "before"
 ```
 
 ## Auto-Update
 
-When running a release build, fire-commit checks for updates in the background (at most once every 24 hours). If a newer version is found, a notice is printed after the TUI exits:
+fire-commit checks for updates in the background (unless `auto_update: n`):
+
+- `latest` channel: at most once every 3 hours
+- `stable` channel: at most once every 24 hours
+
+Update behavior:
+
+- Dev builds (`dev-*`) always auto-update when a newer version is found.
+- Non-dev builds default to notice-only (`auto_update: y`) and can be configured to auto-update (`a`) or skip checks (`n`).
+
+If a newer version is found in notice mode, a message is printed after the command exits:
 
 ```
 A new version of fire-commit is available: v0.1.0 -> v0.2.0
@@ -135,7 +147,7 @@ The channel is set during installation and stored in `update_channel` in your co
 
 ### Dev Builds
 
-Every push to `master` triggers an automated dev build. These are published as pre-releases under the rolling `dev` tag with version strings like `dev-20260214-abc1234`.
+Every push to `master` triggers an automated dev build. These are published as pre-releases under the rolling `dev` tag with version strings like `dev-20260214-1234-abc1234` (`date-build-hash`).
 
 ## Building
 
