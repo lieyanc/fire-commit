@@ -32,7 +32,7 @@ type Release struct {
 
 // Version returns the version string for this release.
 // For dev pre-releases (tag "dev"), returns the release Name
-// (e.g. "dev-20260214-1234-abc1234").
+// (e.g. "dev-1234-20260214-abc1234").
 // For stable releases, returns the TagName.
 func (r *Release) Version() string {
 	if r.Prerelease && r.TagName == "dev" {
@@ -59,6 +59,20 @@ type CheckResult struct {
 // For "stable", it fetches /releases/latest (GitHub excludes pre-releases).
 // For "latest", it fetches /releases?per_page=10 and returns the first element.
 func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
+	release, _, notModified, err := FetchLatestReleaseConditional(ctx, channel, "")
+	if err != nil {
+		return nil, err
+	}
+	if notModified || release == nil {
+		return nil, fmt.Errorf("no release payload available")
+	}
+	return release, nil
+}
+
+// FetchLatestReleaseConditional fetches the latest release using optional ETag
+// conditional requests. If etag is non-empty, it is sent via If-None-Match.
+// It returns notModified=true when GitHub responds with HTTP 304.
+func FetchLatestReleaseConditional(ctx context.Context, channel, etag string) (*Release, string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -72,48 +86,57 @@ func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", false, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", false, err
 	}
 	defer resp.Body.Close()
 
+	responseETag := resp.Header.Get("ETag")
+
+	if resp.StatusCode == http.StatusNotModified {
+		return nil, responseETag, true, nil
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		return nil, responseETag, false, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
 
 	if channel == ChannelStable {
 		var release Release
 		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-			return nil, err
+			return nil, responseETag, false, err
 		}
-		return &release, nil
+		return &release, responseETag, false, nil
 	}
 
 	// Latest channel: decode as array, return first
 	var releases []Release
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return nil, err
+		return nil, responseETag, false, err
 	}
 	if len(releases) == 0 {
-		return nil, fmt.Errorf("no releases found")
+		return nil, responseETag, false, fmt.Errorf("no releases found")
 	}
-	return &releases[0], nil
+	return &releases[0], responseETag, false, nil
 }
 
 // IsDevVersion returns true for local dev builds ("dev") and CI dev builds
-// ("dev-YYYYMMDD-build-hash"). Legacy "dev-YYYYMMDD-hash" is still accepted.
+// ("dev-build-YYYYMMDD-hash"). Legacy formats are still accepted.
 func IsDevVersion(v string) bool {
 	return v == "dev" || strings.HasPrefix(v, "dev-")
 }
 
 // parseDevVersion parses dev version strings:
-//   - New format:    dev-YYYYMMDD-build-hash
-//   - Legacy format: dev-YYYYMMDD-hash (build number treated as 0)
+//   - New format:      dev-build-YYYYMMDD-hash
+//   - Previous format: dev-YYYYMMDD-build-hash
+//   - Legacy format:   dev-YYYYMMDD-hash (build number treated as 0)
 func parseDevVersion(v string) (date string, build int, ok bool) {
 	if !IsDevVersion(v) || v == "dev" {
 		return "", 0, false
@@ -124,29 +147,53 @@ func parseDevVersion(v string) (date string, build int, ok bool) {
 		return "", 0, false
 	}
 
-	date = parts[1]
-	if date == "" {
-		return "", 0, false
+	// New format: dev-<build>-<date>-<hash>
+	if len(parts) >= 4 && isDigits(parts[1]) && isDateToken(parts[2]) {
+		n, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return "", 0, false
+		}
+		return parts[2], n, true
 	}
 
-	// New format: dev-YYYYMMDD-<build>-<hash>
-	if len(parts) >= 4 {
+	// Previous format: dev-<date>-<build>-<hash>
+	if len(parts) >= 4 && isDateToken(parts[1]) && isDigits(parts[2]) {
 		n, err := strconv.Atoi(parts[2])
 		if err != nil {
 			return "", 0, false
 		}
-		return date, n, true
+		return parts[1], n, true
 	}
 
-	// Legacy format: dev-YYYYMMDD-<hash>
-	return date, 0, true
+	// Legacy format: dev-<date>-<hash>
+	if isDateToken(parts[1]) {
+		return parts[1], 0, true
+	}
+
+	return "", 0, false
+}
+
+func isDateToken(s string) bool {
+	return len(s) == 8 && isDigits(s)
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // HasNewerVersion checks if the latest version is newer than the current version.
 //   - Same version string: no update.
 //   - Local "dev" build: any published release is newer.
 //   - Stable channel: semver comparison.
-//   - Latest channel with two dev versions: date + build-number comparison.
+//   - Latest channel with two dev versions: build-number + date comparison.
 //   - Mixed (dev vs stable): semver comparison as fallback.
 func HasNewerVersion(current, latest, channel string) bool {
 	if latest == "" || current == latest {
@@ -158,15 +205,17 @@ func HasNewerVersion(current, latest, channel string) bool {
 	if channel == ChannelStable {
 		return CompareVersions(current, latest)
 	}
-	// Latest channel: dev versions use date + build number comparison.
+	// Latest channel: dev versions use build number + date comparison.
 	if IsDevVersion(current) && IsDevVersion(latest) {
 		curDate, curBuild, curOK := parseDevVersion(current)
 		latDate, latBuild, latOK := parseDevVersion(latest)
 		if curOK && latOK {
-			if latDate != curDate {
-				return latDate > curDate
+			// Build number is the primary ordering key.
+			if latBuild != curBuild {
+				return latBuild > curBuild
 			}
-			return latBuild > curBuild
+			// Date is a secondary tie-breaker.
+			return latDate > curDate
 		}
 		// If the current version is unparsable but latest is valid dev format,
 		// prefer upgrading to recover to a known format.

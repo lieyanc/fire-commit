@@ -3,6 +3,7 @@ package updater
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -14,7 +15,8 @@ type BackgroundChecker struct {
 }
 
 // StartBackgroundCheck launches a background goroutine that checks for updates.
-// It respects a time-based throttle to avoid hitting the API on every run.
+// It uses adaptive scheduling + ETag conditional requests to avoid redundant
+// network calls while still detecting frequent releases quickly.
 // The channel parameter determines which releases to consider ("latest" or "stable").
 func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
 	bc := &BackgroundChecker{
@@ -25,22 +27,59 @@ func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
 		defer close(bc.done)
 
 		bc.result.CurrentVersion = currentVersion
+		now := time.Now()
 
-		if !shouldCheck(channel) {
+		state, err := loadCheckState()
+		if err != nil {
+			// Corrupt/missing cache should not block update checks; recover with a
+			// fresh in-memory state and rewrite it after a successful check.
+			state = &checkState{}
+		}
+		channelState := state.channel(channel)
+
+		if !shouldCheckChannel(channelState, now) {
 			return // checked recently, skip
 		}
 
-		release, err := FetchLatestRelease(context.Background(), channel)
+		release, newETag, notModified, err := FetchLatestReleaseConditional(
+			context.Background(),
+			channel,
+			channelState.ETag,
+		)
 		if err != nil {
 			bc.result.Err = err
+			recordFetchError(channelState, channel, now)
+			_ = saveCheckState(state)
+			return
+		}
+		if newETag != "" {
+			channelState.ETag = newETag
+		}
+
+		if notModified {
+			bc.result.LatestVersion = channelState.LastSeenVersion
+			if bc.result.LatestVersion != "" {
+				bc.result.HasUpdate = HasNewerVersion(currentVersion, bc.result.LatestVersion, channel)
+			}
+			if bc.result.HasUpdate {
+				recordHasUpdate(channelState, now)
+			} else {
+				recordNoUpdate(channelState, channel, now)
+			}
+			_ = saveCheckState(state)
 			return
 		}
 
 		latestVersion := release.Version()
 		bc.result.LatestVersion = latestVersion
 		bc.result.HasUpdate = HasNewerVersion(currentVersion, latestVersion, channel)
-
-		markChecked()
+		channelState.LastSeenVersion = latestVersion
+		if bc.result.HasUpdate {
+			recordHasUpdate(channelState, now)
+		} else {
+			recordNoUpdate(channelState, channel, now)
+		}
+		_ = saveCheckState(state)
 	}()
 
 	return bc

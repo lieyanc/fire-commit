@@ -117,8 +117,12 @@ update_timing: after          # "after" (default) or "before"
 
 fire-commit checks for updates in the background (unless `auto_update: n`):
 
-- `latest` channel: at most once every 3 hours
-- `stable` channel: at most once every 24 hours
+- Uses GitHub `ETag` / `If-None-Match` conditional requests
+- Persists update-check state in cache (`etag`, `last_seen_version`, `consecutive_no_update`)
+- Uses adaptive intervals:
+  - update available: check again in 15 minutes
+  - no update (`latest`): exponential backoff from 15m up to 12h
+  - no update (`stable`): exponential backoff from 2h up to 24h
 
 Update behavior:
 
@@ -147,7 +151,7 @@ The channel is set during installation and stored in `update_channel` in your co
 
 ### Dev Builds
 
-Every push to `master` triggers an automated dev build. These are published as pre-releases under the rolling `dev` tag with version strings like `dev-20260214-1234-abc1234` (`date-build-hash`).
+Every push to `master` triggers an automated dev build. These are published as pre-releases under the rolling `dev` tag with version strings like `dev-1234-20260214-abc1234` (`build-date-hash`).
 
 ## Building
 

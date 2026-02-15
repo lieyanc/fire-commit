@@ -18,7 +18,7 @@ func TestAutoUpdateMode(t *testing.T) {
 	}{
 		{
 			name:    "dev build always auto updates",
-			version: "dev-20260215-1-abc1234",
+			version: "dev-1-20260215-abc1234",
 			cfg:     &config.Config{AutoUpdate: "n"},
 			want:    "a",
 		},
