@@ -13,20 +13,20 @@ func (m Model) updateEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, keys.Escape):
 			m.editing = false
+			m.editArea.Blur()
 			m.phase = PhaseSelect
 			return m, nil
 		case key.Matches(msg, keys.CtrlC):
 			m.cancel()
 			return m, tea.Quit
-		}
-
-		// Check for ctrl+s to save
-		if msg.String() == "ctrl+s" {
+		case key.Matches(msg, keys.Save):
 			value := strings.TrimSpace(m.editArea.Value())
 			if value != "" {
 				m.messages[m.cursor] = value
 			}
 			m.editing = false
+			m.editArea.Blur()
+			m.confirmCursor = confirmCommitOnly
 			m.phase = PhaseConfirm
 			return m, nil
 		}
@@ -45,5 +45,5 @@ func (m Model) viewEdit() string {
 	b.WriteString(m.editArea.View())
 	b.WriteString(helpStyle.Render("\n\n  ctrl+s save • esc cancel"))
 
-	return boxStyle.Render(b.String())
+	return m.renderBox(b.String())
 }

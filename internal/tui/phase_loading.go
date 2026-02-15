@@ -71,6 +71,8 @@ func (m Model) updateLoading(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) viewLoading() string {
 	var b strings.Builder
+	contentWidth := m.contentWidth()
+
 	b.WriteString(titleStyle.Render("🔥 fire-commit"))
 	b.WriteString("\n\n")
 
@@ -80,21 +82,20 @@ func (m Model) viewLoading() string {
 	// Show completed messages
 	for i, msg := range m.messages {
 		if msg != "" {
-			b.WriteString(fmt.Sprintf("\n  %s %s",
-				successStyle.Render("✓"),
-				dimStyle.Render(msg)))
+			b.WriteString("\n")
+			b.WriteString(renderWrappedLine("  ✓ ", "  "+successStyle.Render("✓")+" ", msg, dimStyle, contentWidth))
 		} else if i < m.total {
-			b.WriteString(fmt.Sprintf("\n  %s",
-				dimStyle.Render("  ...")))
+			b.WriteString("\n")
+			b.WriteString(renderWrappedLine("    ", "    ", "...", dimStyle, contentWidth))
 		}
 	}
 
 	if m.stat != "" && m.completed == 0 {
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(m.stat))
+		b.WriteString(dimStyle.Render(wrapText(m.stat, contentWidth)))
 	}
 
-	return boxStyle.Render(b.String())
+	return m.renderBox(b.String())
 }
 
 // compactMessages removes empty strings from the messages slice.

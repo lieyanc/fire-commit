@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -21,6 +20,7 @@ func (m Model) updateSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case key.Matches(msg, keys.Enter):
+			m.confirmCursor = confirmCommitOnly
 			m.phase = PhaseConfirm
 			return m, nil
 		case key.Matches(msg, keys.Edit):
@@ -29,15 +29,7 @@ func (m Model) updateSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseEdit
 			return m, m.editArea.Focus()
 		case key.Matches(msg, keys.Regen):
-			n := m.cfg.Generation.NumSuggestions
-			if n <= 0 {
-				n = 3
-			}
-			m.messages = make([]string, n)
-			m.completed = 0
-			m.total = n
-			m.resultCh = nil
-			m.cursor = 0
+			m.resetForRegeneration()
 			m.phase = PhaseLoading
 			return m, tea.Batch(m.spinner.Tick, m.startGeneration())
 		case key.Matches(msg, keys.Quit):
@@ -50,22 +42,55 @@ func (m Model) updateSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) viewSelect() string {
 	var b strings.Builder
+	contentWidth := m.contentWidth()
+
 	b.WriteString(titleStyle.Render("🔥 fire-commit"))
 	b.WriteString("\n\n")
 	b.WriteString("Select a commit message:\n\n")
 
 	for i, msg := range m.messages {
 		if i == m.cursor {
-			b.WriteString(cursorStyle.Render("  > "))
-			b.WriteString(selectedStyle.Render(msg))
+			b.WriteString(renderWrappedLine("  > ", cursorStyle.Render("  > "), msg, selectedStyle, contentWidth))
 		} else {
-			b.WriteString("    ")
-			b.WriteString(normalStyle.Render(msg))
+			b.WriteString(renderWrappedLine("    ", "    ", msg, normalStyle, contentWidth))
 		}
 		b.WriteString("\n")
 	}
 
-	b.WriteString(helpStyle.Render(fmt.Sprintf("\n  ↑/↓ select • enter confirm • e edit • r regen • q quit")))
+	b.WriteString(helpStyle.Render("\n  ↑/↓/j/k select • enter confirm • e edit • r regen • q quit"))
 
-	return boxStyle.Render(b.String())
+	return m.renderBox(b.String())
+}
+
+func (m *Model) resetForRegeneration() {
+	n := m.cfg.Generation.NumSuggestions
+	if n <= 0 {
+		n = 3
+	}
+
+	m.messages = make([]string, n)
+	m.completed = 0
+	m.total = n
+	m.resultCh = nil
+	m.cursor = 0
+	m.editing = false
+	m.editArea.Blur()
+
+	m.confirmCursor = confirmCommitOnly
+	m.versionTag = ""
+	m.editingTag = false
+	m.tagInput.SetValue("")
+	m.tagInput.Blur()
+	m.wantPush = false
+
+	m.committed = false
+	m.pushed = false
+	m.commitErr = nil
+	m.pushErr = nil
+	m.tagged = false
+	m.tagErr = nil
+	m.tagPushed = false
+	m.tagPushErr = nil
+
+	m.spinner = newSpinner()
 }

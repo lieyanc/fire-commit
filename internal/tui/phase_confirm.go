@@ -10,6 +10,14 @@ import (
 	"github.com/lieyanc/fire-commit/internal/git"
 )
 
+const (
+	confirmCommitAndPush = iota
+	confirmCommitOnly
+	confirmCancel
+
+	confirmOptionCount = 3
+)
+
 func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.editingTag {
 		return m.updateTagInput(msg)
@@ -22,9 +30,15 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseSelect
 			return m, nil
 		case key.Matches(msg, keys.Tab), key.Matches(msg, keys.Down):
-			m.confirmCursor = (m.confirmCursor + 1) % 3
+			m.confirmCursor = (m.confirmCursor + 1) % confirmOptionCount
 		case key.Matches(msg, keys.Up):
-			m.confirmCursor = (m.confirmCursor + 2) % 3
+			m.confirmCursor = (m.confirmCursor + confirmOptionCount - 1) % confirmOptionCount
+		case key.Matches(msg, keys.Push):
+			if m.confirmCursor == confirmCommitAndPush {
+				m.confirmCursor = confirmCommitOnly
+			} else {
+				m.confirmCursor = confirmCommitAndPush
+			}
 		case key.Matches(msg, keys.Version):
 			if m.versionTag != "" {
 				// Clear existing tag
@@ -42,15 +56,15 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(msg, keys.Enter):
 			switch m.confirmCursor {
-			case 0: // Commit & Push
+			case confirmCommitAndPush:
 				m.wantPush = true
 				m.phase = PhaseCommitting
 				return m, tea.Batch(m.spinner.Tick, m.doCommit())
-			case 1: // Commit only
+			case confirmCommitOnly:
 				m.wantPush = false
 				m.phase = PhaseCommitting
 				return m, tea.Batch(m.spinner.Tick, m.doCommit())
-			case 2: // Cancel
+			case confirmCancel:
 				m.phase = PhaseSelect
 				return m, nil
 			}
@@ -87,10 +101,12 @@ func (m Model) updateTagInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) viewConfirm() string {
 	var b strings.Builder
+	contentWidth := m.contentWidth()
+
 	b.WriteString(titleStyle.Render("🔥 fire-commit"))
 	b.WriteString("\n\n")
 	b.WriteString("Commit message:\n\n")
-	b.WriteString(highlightStyle.Render("  " + m.messages[m.cursor]))
+	b.WriteString(renderWrappedLine("  ", "  ", m.messages[m.cursor], highlightStyle, contentWidth))
 	b.WriteString("\n\n")
 
 	// Version tag line
@@ -112,18 +128,16 @@ func (m Model) viewConfirm() string {
 	options := []string{"Commit & Push", "Commit only", "Cancel"}
 	for i, opt := range options {
 		if i == m.confirmCursor {
-			b.WriteString(cursorStyle.Render("  > "))
-			b.WriteString(selectedStyle.Render(opt))
+			b.WriteString(renderWrappedLine("  > ", cursorStyle.Render("  > "), opt, selectedStyle, contentWidth))
 		} else {
-			b.WriteString("    ")
-			b.WriteString(normalStyle.Render(opt))
+			b.WriteString(renderWrappedLine("    ", "    ", opt, normalStyle, contentWidth))
 		}
 		b.WriteString("\n")
 	}
 
-	b.WriteString(helpStyle.Render("\n  ↑/↓/tab select • enter confirm • v version • esc back"))
+	b.WriteString(helpStyle.Render("\n  ↑/↓/tab select • enter confirm • p toggle push • v version • esc back • q quit"))
 
-	return boxStyle.Render(b.String())
+	return m.renderBox(b.String())
 }
 
 func (m Model) doCommit() tea.Cmd {
@@ -229,7 +243,7 @@ func (m Model) viewCommitting() string {
 		b.WriteString("\n")
 	} else {
 		b.WriteString(m.spinner.View() + " Committing...")
-		return boxStyle.Render(b.String())
+		return m.renderBox(b.String())
 	}
 
 	if m.versionTag != "" {
@@ -241,7 +255,7 @@ func (m Model) viewCommitting() string {
 			b.WriteString("\n")
 		} else {
 			b.WriteString(m.spinner.View() + " Creating tag " + m.versionTag + "...")
-			return boxStyle.Render(b.String())
+			return m.renderBox(b.String())
 		}
 	}
 
@@ -254,7 +268,7 @@ func (m Model) viewCommitting() string {
 			b.WriteString("\n")
 		} else {
 			b.WriteString(m.spinner.View() + " Pushing...")
-			return boxStyle.Render(b.String())
+			return m.renderBox(b.String())
 		}
 
 		if m.tagged {
@@ -266,12 +280,12 @@ func (m Model) viewCommitting() string {
 				b.WriteString("\n")
 			} else {
 				b.WriteString(m.spinner.View() + " Pushing tag " + m.versionTag + "...")
-				return boxStyle.Render(b.String())
+				return m.renderBox(b.String())
 			}
 		}
 	}
 
-	return boxStyle.Render(b.String())
+	return m.renderBox(b.String())
 }
 
 func (m Model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -285,18 +299,21 @@ func (m Model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) viewDone() string {
 	var b strings.Builder
+	contentWidth := m.contentWidth()
+
 	b.WriteString(titleStyle.Render("🔥 fire-commit"))
 	b.WriteString("\n\n")
 
 	if m.commitErr != nil {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("✗ Error: %s", m.commitErr)))
+		b.WriteString(errorStyle.Render(wrapText(fmt.Sprintf("✗ Error: %s", m.commitErr), contentWidth)))
 		b.WriteString(helpStyle.Render("\n\n  Press any key to exit"))
-		return boxStyle.Render(b.String())
+		return m.renderBox(b.String())
 	}
 
 	if m.committed {
-		b.WriteString(successStyle.Render("✓ Committed: "))
-		b.WriteString(highlightStyle.Render(m.messages[m.cursor]))
+		b.WriteString(successStyle.Render("✓ Committed:"))
+		b.WriteString("\n")
+		b.WriteString(renderWrappedLine("  ", "  ", m.messages[m.cursor], highlightStyle, contentWidth))
 		b.WriteString("\n")
 	}
 
@@ -311,7 +328,7 @@ func (m Model) viewDone() string {
 
 	if m.wantPush {
 		if m.pushErr != nil {
-			b.WriteString(errorStyle.Render(fmt.Sprintf("✗ Push failed: %s", m.pushErr)))
+			b.WriteString(errorStyle.Render(wrapText(fmt.Sprintf("✗ Push failed: %s", m.pushErr), contentWidth)))
 		} else if m.pushed {
 			branch, _ := git.CurrentBranch()
 			b.WriteString(successStyle.Render(fmt.Sprintf("✓ Pushed to origin/%s", branch)))
@@ -320,7 +337,7 @@ func (m Model) viewDone() string {
 
 		if m.tagged {
 			if m.tagPushErr != nil {
-				b.WriteString(errorStyle.Render(fmt.Sprintf("✗ Tag push failed: %s", m.tagPushErr)))
+				b.WriteString(errorStyle.Render(wrapText(fmt.Sprintf("✗ Tag push failed: %s", m.tagPushErr), contentWidth)))
 			} else if m.tagPushed {
 				b.WriteString(successStyle.Render("✓ Tag pushed: " + m.versionTag))
 			}
@@ -330,5 +347,5 @@ func (m Model) viewDone() string {
 
 	b.WriteString(helpStyle.Render("\n  Press any key to exit"))
 
-	return boxStyle.Render(b.String())
+	return m.renderBox(b.String())
 }

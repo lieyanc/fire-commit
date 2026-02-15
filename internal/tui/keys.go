@@ -9,6 +9,7 @@ type keyMap struct {
 	Edit    key.Binding
 	Regen   key.Binding
 	Push    key.Binding
+	Save    key.Binding
 	Tab     key.Binding
 	Quit    key.Binding
 	Escape  key.Binding
@@ -40,6 +41,10 @@ var keys = keyMap{
 	Push: key.NewBinding(
 		key.WithKeys("p"),
 		key.WithHelp("p", "push"),
+	),
+	Save: key.NewBinding(
+		key.WithKeys("ctrl+s"),
+		key.WithHelp("ctrl+s", "save"),
 	),
 	Tab: key.NewBinding(
 		key.WithKeys("tab"),

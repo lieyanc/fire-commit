@@ -46,7 +46,7 @@ type Model struct {
 	editing  bool
 
 	// Confirm
-	confirmCursor int // 0=commit+push, 1=commit only, 2=cancel
+	confirmCursor int
 	versionTag    string
 	tagInput      textinput.Model
 	editingTag    bool
@@ -97,9 +97,7 @@ type tagPushDoneMsg struct{ err error }
 
 // NewModel creates a new TUI model.
 func NewModel(cfg *config.Config, diff, stat string) Model {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = selectedStyle
+	s := newSpinner()
 
 	ta := textarea.New()
 	ta.Placeholder = "Edit commit message..."
@@ -120,7 +118,7 @@ func NewModel(cfg *config.Config, diff, stat string) Model {
 		n = 3
 	}
 
-	return Model{
+	model := Model{
 		phase:         PhaseLoading,
 		cfg:           cfg,
 		diff:          diff,
@@ -130,10 +128,20 @@ func NewModel(cfg *config.Config, diff, stat string) Model {
 		total:         n,
 		editArea:      ta,
 		tagInput:      ti,
-		confirmCursor: 0,
+		confirmCursor: confirmCommitOnly,
 		ctx:           ctx,
 		cancel:        cancel,
 	}
+
+	model.resizeInputs()
+	return model
+}
+
+func newSpinner() spinner.Model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = selectedStyle
+	return s
 }
 
 func (m Model) Init() tea.Cmd {
@@ -145,6 +153,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.resizeInputs()
 		return m, nil
 
 	case tea.KeyMsg:
