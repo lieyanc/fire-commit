@@ -87,13 +87,9 @@ func ArchiveCurrentBinary(version string) error {
 		}
 	}
 
-	execPath, err := os.Executable()
+	execPath, err := currentExecutablePath()
 	if err != nil {
-		return fmt.Errorf("determine executable: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("resolve executable: %w", err)
+		return err
 	}
 
 	filename := filenameForVersion(version)
@@ -149,12 +145,12 @@ func ListArchive() ([]VersionEntry, error) {
 	return archive.Versions, nil
 }
 
-// RestoreBinary replaces the current executable with the archived binary for
-// the given version, using the same atomic-rename pattern as SelfUpdate.
-func RestoreBinary(version string) error {
+// RestoreBinary replaces the current executable with an archived binary.
+// Returns appliedNow=false on Windows where replacement is staged.
+func RestoreBinary(version string) (bool, error) {
 	archive, err := LoadArchive()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	var entry *VersionEntry
@@ -165,43 +161,17 @@ func RestoreBinary(version string) error {
 		}
 	}
 	if entry == nil {
-		return fmt.Errorf("version %s not found in archive", version)
+		return false, fmt.Errorf("version %s not found in archive", version)
 	}
 
 	src := filepath.Join(archiveDir(), entry.Filename)
 	if _, err := os.Stat(src); err != nil {
-		return fmt.Errorf("archived binary missing: %w", err)
+		return false, fmt.Errorf("archived binary missing: %w", err)
 	}
 
-	execPath, err := os.Executable()
+	appliedNow, err := replaceCurrentBinary(src)
 	if err != nil {
-		return fmt.Errorf("determine executable: %w", err)
+		return false, err
 	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("resolve executable: %w", err)
-	}
-
-	// Atomic replace: rename old, copy archived, remove old.
-	oldPath := execPath + ".old"
-	if err := os.Rename(execPath, oldPath); err != nil {
-		return fmt.Errorf("move current binary: %w", err)
-	}
-
-	if err := copyFile(src, execPath); err != nil {
-		_ = os.Rename(oldPath, execPath) // try to restore
-		return fmt.Errorf("install archived binary: %w", err)
-	}
-	os.Remove(oldPath)
-
-	if runtime.GOOS != "windows" {
-		_ = os.Chmod(execPath, 0o755)
-	}
-
-	// Recreate symlinks.
-	binDir := filepath.Dir(execPath)
-	baseName := filepath.Base(execPath)
-	recreateLinks(binDir, baseName)
-
-	return nil
+	return appliedNow, nil
 }

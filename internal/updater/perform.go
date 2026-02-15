@@ -64,6 +64,11 @@ func selfUpdate(ctx context.Context, currentVersion, channel string, force bool)
 	}
 	defer os.Remove(archivePath)
 
+	fmt.Println("Verifying checksum...")
+	if err := verifyDownloadedAsset(ctx, release, asset, archivePath); err != nil {
+		return fmt.Errorf("checksum verification failed: %w", err)
+	}
+
 	// Extract to temp dir
 	extractDir, err := os.MkdirTemp("", "fire-commit-update-*")
 	if err != nil {
@@ -90,45 +95,20 @@ func selfUpdate(ctx context.Context, currentVersion, channel string, force bool)
 		return fmt.Errorf("could not find %s in archive: %w", binaryName, err)
 	}
 
-	// Resolve current binary path
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("could not determine executable path: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("could not resolve executable path: %w", err)
-	}
-
 	// Archive current binary before replacing (failure is non-fatal).
 	if err := ArchiveCurrentBinary(currentVersion); err != nil {
 		fmt.Printf("Warning: could not archive current binary: %v\n", err)
 	}
 
-	// Atomic replace: rename old, copy new, remove old
-	oldPath := execPath + ".old"
-	if err := os.Rename(execPath, oldPath); err != nil {
-		return fmt.Errorf("failed to move old binary: %w", err)
+	appliedNow, err := replaceCurrentBinary(newBinary)
+	if err != nil {
+		return fmt.Errorf("failed to install updated binary: %w", err)
 	}
-
-	if err := copyFile(newBinary, execPath); err != nil {
-		// Try to restore old binary
-		_ = os.Rename(oldPath, execPath)
-		return fmt.Errorf("failed to install new binary: %w", err)
+	if appliedNow {
+		fmt.Printf("Successfully updated to %s\n", latestVersion)
+	} else {
+		fmt.Printf("Update to %s is staged and will complete after process exit.\n", latestVersion)
 	}
-	os.Remove(oldPath)
-
-	// Make executable
-	if runtime.GOOS != "windows" {
-		_ = os.Chmod(execPath, 0o755)
-	}
-
-	// Recreate symlinks in the same directory
-	binDir := filepath.Dir(execPath)
-	baseName := filepath.Base(execPath)
-	recreateLinks(binDir, baseName)
-
-	fmt.Printf("Successfully updated to %s\n", latestVersion)
 
 	// Prune old archives to keep at most 5 versions (failure is non-fatal).
 	if err := PruneArchive(5); err != nil {

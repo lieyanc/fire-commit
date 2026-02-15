@@ -48,10 +48,15 @@ func runRollback(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Restoring %s...\n", selected)
-	if err := updater.RestoreBinary(selected); err != nil {
+	appliedNow, err := updater.RestoreBinary(selected)
+	if err != nil {
 		return fmt.Errorf("rollback failed: %w", err)
 	}
 
-	fmt.Printf("Successfully restored %s\n", selected)
+	if appliedNow {
+		fmt.Printf("Successfully restored %s\n", selected)
+	} else {
+		fmt.Printf("Restore to %s is staged and will complete after process exit.\n", selected)
+	}
 	return nil
 }

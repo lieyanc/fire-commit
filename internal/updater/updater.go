@@ -24,10 +24,12 @@ const (
 
 // Release represents a GitHub release.
 type Release struct {
-	TagName    string  `json:"tag_name"`
-	Name       string  `json:"name"`
-	Prerelease bool    `json:"prerelease"`
-	Assets     []Asset `json:"assets"`
+	TagName     string    `json:"tag_name"`
+	Name        string    `json:"name"`
+	Prerelease  bool      `json:"prerelease"`
+	Draft       bool      `json:"draft"`
+	PublishedAt time.Time `json:"published_at"`
+	Assets      []Asset   `json:"assets"`
 }
 
 // Version returns the version string for this release.
@@ -57,7 +59,8 @@ type CheckResult struct {
 
 // FetchLatestRelease fetches the latest release from GitHub based on the channel.
 // For "stable", it fetches /releases/latest (GitHub excludes pre-releases).
-// For "latest", it fetches /releases?per_page=10 and returns the first element.
+// For "latest", it fetches /releases and selects the newest published release,
+// regardless of stable/pre-release.
 func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 	release, _, notModified, err := FetchLatestReleaseConditional(ctx, channel, "")
 	if err != nil {
@@ -81,7 +84,7 @@ func FetchLatestReleaseConditional(ctx context.Context, channel, etag string) (*
 	case ChannelStable:
 		url = apiBase + "/releases/latest"
 	default:
-		url = apiBase + "/releases?per_page=10"
+		url = apiBase + "/releases?per_page=20"
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -116,27 +119,51 @@ func FetchLatestReleaseConditional(ctx context.Context, channel, etag string) (*
 		return &release, responseETag, false, nil
 	}
 
-	// Latest channel: decode as array, return first
+	// Latest channel: decode as array and select the newest published release.
 	var releases []Release
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, responseETag, false, err
 	}
-	if len(releases) == 0 {
+	latest := newestPublishedRelease(releases)
+	if latest == nil {
 		return nil, responseETag, false, fmt.Errorf("no releases found")
 	}
-	return &releases[0], responseETag, false, nil
+	return latest, responseETag, false, nil
+}
+
+func newestPublishedRelease(releases []Release) *Release {
+	var newest *Release
+	for i := range releases {
+		r := &releases[i]
+		if r.Draft {
+			continue
+		}
+		if newest == nil {
+			newest = r
+			continue
+		}
+		// Prefer entries with published timestamps, then compare recency.
+		if newest.PublishedAt.IsZero() && !r.PublishedAt.IsZero() {
+			newest = r
+			continue
+		}
+		if !r.PublishedAt.IsZero() && r.PublishedAt.After(newest.PublishedAt) {
+			newest = r
+		}
+	}
+	return newest
 }
 
 // IsDevVersion returns true for local dev builds ("dev") and CI dev builds
-// ("dev-build-YYYYMMDD-hash"). Legacy formats are still accepted.
+// that use the "dev-*" prefix. Legacy formats are still accepted.
 func IsDevVersion(v string) bool {
 	return v == "dev" || strings.HasPrefix(v, "dev-")
 }
 
 // parseDevVersion parses dev version strings:
-//   - New format:      dev-build-YYYYMMDD-hash
-//   - Previous format: dev-YYYYMMDD-build-hash
-//   - Legacy format:   dev-YYYYMMDD-hash (build number treated as 0)
+//   - Current format:  dev-<build>-<date>-<hash>
+//   - Previous format: dev-<date>-<build>-<hash>
+//   - Legacy format:   dev-<date>-<hash> (build number treated as 0)
 func parseDevVersion(v string) (date string, build int, ok bool) {
 	if !IsDevVersion(v) || v == "dev" {
 		return "", 0, false
@@ -192,9 +219,9 @@ func isDigits(s string) bool {
 // HasNewerVersion checks if the latest version is newer than the current version.
 //   - Same version string: no update.
 //   - Local "dev" build: any published release is newer.
-//   - Stable channel: semver comparison.
+//   - Stable channel: semver comparison, with dev->stable migration.
 //   - Latest channel with two dev versions: build-number + date comparison.
-//   - Mixed (dev vs stable): semver comparison as fallback.
+//   - Latest channel with mixed dev/stable: always update to follow newest release stream.
 func HasNewerVersion(current, latest, channel string) bool {
 	if latest == "" || current == latest {
 		return false
@@ -202,11 +229,18 @@ func HasNewerVersion(current, latest, channel string) bool {
 	if current == "dev" {
 		return true
 	}
+	currentIsDev := IsDevVersion(current)
+	latestIsDev := IsDevVersion(latest)
+
 	if channel == ChannelStable {
-		return CompareVersions(current, latest)
+		if currentIsDev && !latestIsDev {
+			return true
+		}
+		return compareSemverWithRecovery(current, latest)
 	}
+
 	// Latest channel: dev versions use build number + date comparison.
-	if IsDevVersion(current) && IsDevVersion(latest) {
+	if currentIsDev && latestIsDev {
 		curDate, curBuild, curOK := parseDevVersion(current)
 		latDate, latBuild, latOK := parseDevVersion(latest)
 		if curOK && latOK {
@@ -225,9 +259,27 @@ func HasNewerVersion(current, latest, channel string) bool {
 		if curDate != "" && latDate != "" {
 			return latDate > curDate
 		}
+		// Two unparsable dev strings: prefer updating to recover to published head.
+		return true
 	}
-	// Fallback: semver comparison (works for stable→stable, mixed cases).
-	return CompareVersions(current, latest)
+
+	// Latest channel includes both stable and dev releases. If release type changed,
+	// follow the newest published stream.
+	if currentIsDev != latestIsDev {
+		return true
+	}
+
+	return compareSemverWithRecovery(current, latest)
+}
+
+func compareSemverWithRecovery(current, latest string) bool {
+	if CompareVersions(current, latest) {
+		return true
+	}
+	cur := parseVersion(current)
+	lat := parseVersion(latest)
+	// If current is unparsable but latest is valid semver, recover by upgrading.
+	return cur == nil && lat != nil
 }
 
 // CompareVersions compares two semver version strings.

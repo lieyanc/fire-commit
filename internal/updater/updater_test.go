@@ -136,6 +136,66 @@ func TestHasNewerVersionDev(t *testing.T) {
 	}
 }
 
+func TestHasNewerVersionMixedStreams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		channel string
+		current string
+		latest  string
+		want    bool
+	}{
+		{
+			name:    "latest channel upgrades dev to stable",
+			channel: ChannelLatest,
+			current: "dev-100-20260215-aaaaaaa",
+			latest:  "v1.2.3",
+			want:    true,
+		},
+		{
+			name:    "latest channel upgrades stable to dev",
+			channel: ChannelLatest,
+			current: "v1.2.3",
+			latest:  "dev-101-20260216-bbbbbbb",
+			want:    true,
+		},
+		{
+			name:    "stable channel upgrades from dev",
+			channel: ChannelStable,
+			current: "dev-100-20260215-aaaaaaa",
+			latest:  "v1.2.3",
+			want:    true,
+		},
+		{
+			name:    "latest channel does not downgrade semver",
+			channel: ChannelLatest,
+			current: "v2.0.0",
+			latest:  "v1.2.3",
+			want:    false,
+		},
+		{
+			name:    "latest channel recovers unparsable current semver",
+			channel: ChannelLatest,
+			current: "custom-build",
+			latest:  "v1.2.3",
+			want:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := HasNewerVersion(tc.current, tc.latest, tc.channel)
+			if got != tc.want {
+				t.Fatalf("HasNewerVersion(%q, %q, %q) got %v want %v", tc.current, tc.latest, tc.channel, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFetchLatestReleaseConditionalUsesETag(t *testing.T) {
 	oldClient := http.DefaultClient
 	t.Cleanup(func() {
@@ -220,6 +280,50 @@ func TestFetchLatestReleaseConditionalParsesStable(t *testing.T) {
 	}
 	if release == nil || release.TagName != "v1.2.3" {
 		t.Fatalf("unexpected release: %#v", release)
+	}
+}
+
+func TestFetchLatestReleaseConditionalPicksNewestPublished(t *testing.T) {
+	oldClient := http.DefaultClient
+	t.Cleanup(func() {
+		http.DefaultClient = oldClient
+	})
+
+	http.DefaultClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path != "/repos/lieyanc/fire-commit/releases" {
+				t.Fatalf("unexpected request path: %s", req.URL.Path)
+			}
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`[
+{"tag_name":"v1.2.3","name":"v1.2.3","prerelease":false,"draft":false,"published_at":"2026-02-14T12:00:00Z","assets":[]},
+{"tag_name":"dev","name":"dev-200-20260215-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-15T12:00:00Z","assets":[]},
+{"tag_name":"v9.9.9","name":"v9.9.9","prerelease":false,"draft":true,"published_at":"2026-02-16T12:00:00Z","assets":[]}
+]`)),
+				Request: req,
+			}
+			return resp, nil
+		}),
+	}
+
+	release, _, notModified, err := FetchLatestReleaseConditional(
+		context.Background(),
+		ChannelLatest,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("FetchLatestReleaseConditional() error: %v", err)
+	}
+	if notModified {
+		t.Fatalf("notModified should be false on 200")
+	}
+	if release == nil {
+		t.Fatalf("release should not be nil")
+	}
+	if got, want := release.Version(), "dev-200-20260215-abc1234"; got != want {
+		t.Fatalf("version mismatch: got %q want %q", got, want)
 	}
 }
 

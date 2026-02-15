@@ -67,4 +67,3 @@ func TestParseMessage(t *testing.T) {
 		})
 	}
 }
-
