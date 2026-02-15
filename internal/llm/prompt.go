@@ -28,22 +28,31 @@ func buildSystemPrompt(lang string) string {
 		langInstruction = "English"
 	}
 
-	return fmt.Sprintf(`You write git commit messages in Conventional Commits format.
+	return fmt.Sprintf(`You write Git commit messages following Conventional Commits 1.0.0.
 
-Format: type(scope): description
-Types: feat fix docs style refactor perf test build ci chore revert
+Output exactly one line:
+<type>(<scope>)!: <description>
+or
+<type>: <description>
+
+Allowed types:
+feat fix docs style refactor perf test build ci chore revert
 
 Rules:
-- Scope is optional; use it when a clear module/component is involved
-- Description: lowercase, imperative mood, no trailing period
-- Focus on WHY the change was made or WHAT it achieves, not a file-by-file listing
-- Under 72 characters total
+- Scope is optional; include it only when a clear module/component exists
+- Use "!" only for breaking changes
+- Description must be imperative and concise, with no trailing period
+- For Latin-script languages, start lowercase except proper nouns/acronyms
+- Target <= 50 characters; hard limit <= 96 characters
+- Focus on intent or outcome, not a file-by-file listing
+- Output raw message only: no quotes, no list markers, no extra lines
 - Write in %s
 
 Good examples:
 - feat(auth): add OAuth2 login flow
 - fix: prevent nil pointer on empty config
 - refactor(api): split handler into service layer
+- feat(api)!: remove legacy v1 endpoints
 
 Bad examples:
 - update files (too vague)
