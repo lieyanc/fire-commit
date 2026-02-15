@@ -75,9 +75,21 @@ On first run, an interactive setup wizard will ask you to choose an LLM provider
 firecommit              # default — generate & commit
 firecommit version      # print version
 firecommit update       # self-update to latest release
+firecommit tag v1.2.3   # create + push release tag (triggers release workflow)
 firecommit config       # show current configuration
 firecommit config setup # re-run the setup wizard
 ```
+
+### Release by Tag
+
+To publish a stable release without running the commit flow, create and push a
+version tag directly:
+
+```sh
+firecommit tag v1.2.3
+```
+
+The GitHub release workflow is triggered by tags matching `v*`.
 
 ## Supported Providers
 

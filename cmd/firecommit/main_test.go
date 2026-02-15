@@ -70,6 +70,7 @@ func TestShouldSkipAutoCheck(t *testing.T) {
 	}{
 		{name: "update command", args: []string{"update"}, want: true},
 		{name: "rollback command", args: []string{"rollback"}, want: true},
+		{name: "tag command", args: []string{"tag", "v1.2.3"}, want: true},
 		{name: "flag then update", args: []string{"--verbose", "update"}, want: true},
 		{name: "config command", args: []string{"config"}, want: false},
 		{name: "only help flag", args: []string{"--help"}, want: false},

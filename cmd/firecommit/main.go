@@ -118,7 +118,7 @@ func updateTiming(cfg *config.Config, cfgErr error) string {
 // shouldSkipAutoCheck returns true for commands that manage versions directly.
 func shouldSkipAutoCheck(args []string) bool {
 	subcmd := firstSubcommand(args)
-	return subcmd == "update" || subcmd == "rollback"
+	return subcmd == "update" || subcmd == "rollback" || subcmd == "tag"
 }
 
 func firstSubcommand(args []string) string {
