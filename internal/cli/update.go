@@ -27,7 +27,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		channel = cfg.UpdateChannel
 	}
 
-	if err := updater.SelfUpdate(context.Background(), appVersion, channel); err != nil {
+	// Manual update is always forced and bypasses "already up to date" short-circuit.
+	if err := updater.SelfUpdateForce(context.Background(), appVersion, channel); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 	return nil

@@ -15,9 +15,21 @@ import (
 	"time"
 )
 
-// SelfUpdate downloads and installs the latest release, replacing the current binary.
-// The channel parameter determines which releases to consider ("latest" or "stable").
+// SelfUpdate downloads and installs the latest release when it is newer than
+// the current binary.
 func SelfUpdate(ctx context.Context, currentVersion, channel string) error {
+	return selfUpdate(ctx, currentVersion, channel, false)
+}
+
+// SelfUpdateForce always downloads and reinstalls the latest release on the
+// selected channel, even if the current version appears up to date.
+func SelfUpdateForce(ctx context.Context, currentVersion, channel string) error {
+	return selfUpdate(ctx, currentVersion, channel, true)
+}
+
+// selfUpdate downloads and installs a release, replacing the current binary.
+// The channel parameter determines which releases to consider ("latest" or "stable").
+func selfUpdate(ctx context.Context, currentVersion, channel string, force bool) error {
 	fmt.Println("Checking for updates...")
 
 	release, err := FetchLatestRelease(ctx, channel)
@@ -27,12 +39,16 @@ func SelfUpdate(ctx context.Context, currentVersion, channel string) error {
 
 	latestVersion := release.Version()
 
-	if !HasNewerVersion(currentVersion, latestVersion, channel) {
+	if !force && !HasNewerVersion(currentVersion, latestVersion, channel) {
 		fmt.Printf("Already up to date (%s).\n", currentVersion)
 		return nil
 	}
 
-	fmt.Printf("Updating %s -> %s\n", currentVersion, latestVersion)
+	if force {
+		fmt.Printf("Forcing reinstall %s -> %s\n", currentVersion, latestVersion)
+	} else {
+		fmt.Printf("Updating %s -> %s\n", currentVersion, latestVersion)
+	}
 
 	// Find matching asset
 	asset := FindAssetForPlatform(release.Assets)
