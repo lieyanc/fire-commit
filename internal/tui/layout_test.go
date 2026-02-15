@@ -46,6 +46,8 @@ func TestResetForRegenerationClearsTransientState(t *testing.T) {
 	m := NewModel(cfg, "diff", "stat")
 	m.cursor = 3
 	m.completed = 2
+	m.finished = 3
+	m.failed = 1
 	m.total = 1
 	m.confirmCursor = confirmCancel
 	m.versionTag = "v9.9.9"
@@ -63,11 +65,15 @@ func TestResetForRegenerationClearsTransientState(t *testing.T) {
 
 	m.resetForRegeneration()
 
-	if len(m.messages) != 4 {
-		t.Fatalf("messages len got %d want 4", len(m.messages))
+	if len(m.messages) != 0 || cap(m.messages) != 4 {
+		t.Fatalf("messages state got len=%d cap=%d want len=0 cap=4", len(m.messages), cap(m.messages))
 	}
-	if m.completed != 0 || m.total != 4 {
-		t.Fatalf("generation counters not reset: completed=%d total=%d", m.completed, m.total)
+	if len(m.partial) != 4 || len(m.slotDone) != 4 || len(m.slotFailed) != 4 {
+		t.Fatalf("slot buffers not reset to 4")
+	}
+	if m.completed != 0 || m.finished != 0 || m.failed != 0 || m.total != 4 {
+		t.Fatalf("generation counters not reset: completed=%d finished=%d failed=%d total=%d",
+			m.completed, m.finished, m.failed, m.total)
 	}
 	if m.cursor != 0 {
 		t.Fatalf("cursor got %d want 0", m.cursor)
