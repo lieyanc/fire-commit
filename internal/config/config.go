@@ -36,7 +36,8 @@ type Config struct {
 	// "n" = don't check for updates
 	// "a" = always auto-update without asking
 	// Non-dev builds ignore this and always auto-update.
-	AutoUpdate string `yaml:"auto_update,omitempty"`
+	AutoUpdate   string `yaml:"auto_update,omitempty"`
+	UpdateTiming string `yaml:"update_timing,omitempty"`
 }
 
 // NeedsMigration returns true if the config was created with an older version

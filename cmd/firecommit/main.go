@@ -24,15 +24,37 @@ func main() {
 	// Determine auto-update mode
 	mode := autoUpdateMode(version, cfg, cfgErr)
 
+	// Determine update timing: "before" or "after" (default)
+	timing := updateTiming(cfg, cfgErr)
+
 	// Start background update check unless disabled
 	var checker *updater.BackgroundChecker
 	if mode != "n" {
 		checker = updater.StartBackgroundCheck(version, channel)
 	}
 
+	// Handle "before" timing: wait for check result before running the command
+	if timing == "before" && checker != nil {
+		r := checker.Result()
+		if r.HasUpdate && r.Err == nil {
+			if mode == "a" {
+				fmt.Fprintf(os.Stderr, "\nAuto-updating fire-commit: %s → %s\n", r.CurrentVersion, r.LatestVersion)
+				if updateErr := updater.SelfUpdate(context.Background(), version, channel); updateErr != nil {
+					fmt.Fprintf(os.Stderr, "Auto-update failed: %v\n", updateErr)
+				}
+			} else {
+				if notice := checker.NoticeString(); notice != "" {
+					fmt.Fprint(os.Stderr, notice)
+				}
+			}
+		}
+		// Mark checker as consumed so we don't handle it again after exit
+		checker = nil
+	}
+
 	err := cli.Execute()
 
-	// Handle update after command exits
+	// Handle update after command exits (default timing)
 	if checker != nil {
 		r := checker.Result()
 		if r.HasUpdate && r.Err == nil {
@@ -74,4 +96,15 @@ func autoUpdateMode(version string, cfg *config.Config, cfgErr error) string {
 	default:
 		return "y"
 	}
+}
+
+// updateTiming returns "before" or "after" based on config.
+func updateTiming(cfg *config.Config, cfgErr error) string {
+	if cfgErr != nil || cfg == nil {
+		return "after"
+	}
+	if cfg.UpdateTiming == "before" {
+		return "before"
+	}
+	return "after"
 }

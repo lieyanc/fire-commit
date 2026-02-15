@@ -35,7 +35,11 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 		if ch == "" {
 			ch = "latest"
 		}
-		updateSummary := fmt.Sprintf("channel: %s", ch)
+		timing := cfg.UpdateTiming
+		if timing == "" {
+			timing = "after"
+		}
+		updateSummary := fmt.Sprintf("channel: %s, timing: %s", ch, timing)
 
 		menu := huh.NewSelect[string]().
 			Title("What would you like to configure?").
@@ -226,6 +230,10 @@ func editUpdateSettings(cfg *config.Config) error {
 	if autoUpdate == "" {
 		autoUpdate = "y"
 	}
+	updateTiming := cfg.UpdateTiming
+	if updateTiming == "" {
+		updateTiming = "after"
+	}
 
 	channelSelect := huh.NewSelect[string]().
 		Title("Update channel").
@@ -244,11 +252,20 @@ func editUpdateSettings(cfg *config.Config) error {
 		).
 		Value(&autoUpdate)
 
-	if err := huh.NewForm(huh.NewGroup(channelSelect, autoUpdateSelect)).Run(); err != nil {
+	timingSelect := huh.NewSelect[string]().
+		Title("Update timing").
+		Options(
+			huh.NewOption("After exit (default)", "after"),
+			huh.NewOption("Before startup", "before"),
+		).
+		Value(&updateTiming)
+
+	if err := huh.NewForm(huh.NewGroup(channelSelect, autoUpdateSelect, timingSelect)).Run(); err != nil {
 		return err
 	}
 
 	cfg.UpdateChannel = updateChannel
 	cfg.AutoUpdate = autoUpdate
+	cfg.UpdateTiming = updateTiming
 	return nil
 }
