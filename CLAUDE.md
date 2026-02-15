@@ -66,7 +66,7 @@ Three implementations:
 
 ### Auto-Update
 
-`internal/updater/updater.go` — Fetches GitHub releases, supports `latest` (dev + stable) and `stable` channels, version-aware update checks (dev `build-date-hash`), ETag conditional requests, adaptive check intervals, and self-update via binary replacement.
+`internal/updater/updater.go` — Fetches GitHub releases, supports `latest` (dev + stable) and `stable` channels, version-aware update checks (dev `build-date-hash`), optional ETag/adaptive cached checks (`update_cache`), and self-update via binary replacement.
 
 ## Key Patterns
 

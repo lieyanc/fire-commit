@@ -123,18 +123,21 @@ generation:
 update_channel: latest        # "latest" (dev + stable) or "stable"
 auto_update: y                # non-dev builds: y(notify), a(auto-update), n(skip checks)
 update_timing: after          # "after" (default) or "before"
+update_cache: false           # false(default): check every run; true: use cached checks
 ```
 
 ## Auto-Update
 
 fire-commit checks for updates in the background (unless `auto_update: n`):
 
-- Uses GitHub `ETag` / `If-None-Match` conditional requests
-- Persists update-check state in cache (`etag`, `last_seen_version`, `consecutive_no_update`)
-- Uses adaptive intervals:
-  - update available: check again in 15 minutes
-  - no update (`latest`): exponential backoff from 15m up to 12h
-  - no update (`stable`): exponential backoff from 2h up to 24h
+- Default (`update_cache: false`): check on every run
+- Optional (`update_cache: true`): use cached checks with:
+  - GitHub `ETag` / `If-None-Match` conditional requests
+  - persisted state (`etag`, `last_seen_version`, `consecutive_no_update`)
+  - adaptive intervals:
+    - update available: check again in 15 minutes
+    - no update (`latest`): exponential backoff from 15m up to 12h
+    - no update (`stable`): exponential backoff from 2h up to 24h
 
 Update behavior:
 

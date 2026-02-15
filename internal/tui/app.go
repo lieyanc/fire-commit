@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -32,11 +33,19 @@ type Model struct {
 	stat  string
 
 	// Loading: progressive per-message results
-	spinner   spinner.Model
-	messages  []string
-	completed int
-	total     int
-	resultCh  <-chan llm.IndexedMessage
+	spinner    spinner.Model
+	messages   []string
+	partial    []string
+	slotDone   []bool
+	slotFailed []bool
+	completed  int
+	finished   int
+	failed     int
+	total      int
+	resultCh   <-chan llm.IndexedMessageEvent
+	// generationID identifies the active round of LLM generation.
+	// It prevents stale events from a previous round from mutating state.
+	generationID int
 
 	// Select
 	cursor int
@@ -50,6 +59,9 @@ type Model struct {
 	versionTag    string
 	tagInput      textinput.Model
 	editingTag    bool
+	tagHintBase   string
+	tagHintMinor  string
+	tagHintPatch  string
 
 	// Result
 	committed  bool
@@ -73,15 +85,18 @@ type Model struct {
 	wantPush bool
 }
 
-// messageReadyMsg signals a single LLM request completed.
+// messageReadyMsg is a streamed event for one LLM request.
 type messageReadyMsg struct {
-	index   int
-	content string
-	err     error
+	generationID int
+	index        int
+	delta        string
+	content      string
+	done         bool
+	err          error
 }
 
 // allDoneMsg signals the result channel was closed (all requests finished).
-type allDoneMsg struct{}
+type allDoneMsg struct{ generationID int }
 
 // commitDoneMsg signals the commit operation completed.
 type commitDoneMsg struct{ err error }
@@ -107,7 +122,8 @@ func NewModel(cfg *config.Config, diff, stat string) Model {
 	ta.SetHeight(5)
 
 	ti := textinput.New()
-	ti.Placeholder = "v1.0.0"
+	initialTagHints := buildTagHints("")
+	ti.Placeholder = initialTagHints.base
 	ti.CharLimit = 50
 	ti.Width = 30
 
@@ -124,10 +140,17 @@ func NewModel(cfg *config.Config, diff, stat string) Model {
 		diff:          diff,
 		stat:          stat,
 		spinner:       s,
-		messages:      make([]string, n),
+		messages:      make([]string, 0, n),
+		partial:       make([]string, n),
+		slotDone:      make([]bool, n),
+		slotFailed:    make([]bool, n),
 		total:         n,
+		generationID:  1,
 		editArea:      ta,
 		tagInput:      ti,
+		tagHintBase:   initialTagHints.base,
+		tagHintMinor:  initialTagHints.minor,
+		tagHintPatch:  initialTagHints.patch,
 		confirmCursor: confirmCommitOnly,
 		ctx:           ctx,
 		cancel:        cancel,
@@ -161,6 +184,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			return m, tea.Quit
 		}
+	}
+
+	// Handle generation stream events globally so we can keep receiving
+	// suggestions while the user is already on Select/Edit/Confirm screens.
+	switch msg := msg.(type) {
+	case startResultsMsg:
+		if msg.generationID != m.generationID {
+			return m, nil
+		}
+		m.resultCh = msg.ch
+		return m, waitForMessage(m.resultCh, msg.generationID)
+
+	case messageReadyMsg:
+		if msg.generationID != m.generationID {
+			return m, nil
+		}
+		return m.handleGenerationMessage(msg)
+
+	case allDoneMsg:
+		if msg.generationID != m.generationID {
+			return m, nil
+		}
+		m.resultCh = nil
+		if m.completed == 0 {
+			if m.failed > 0 {
+				m.commitErr = fmt.Errorf("all LLM requests failed")
+			} else {
+				m.commitErr = fmt.Errorf("LLM returned no commit messages")
+			}
+			m.phase = PhaseDone
+		}
+		return m, nil
 	}
 
 	switch m.phase {
@@ -203,7 +258,11 @@ func (m Model) startGeneration() tea.Cmd {
 	return func() tea.Msg {
 		provider, err := llm.NewProvider(m.cfg)
 		if err != nil {
-			return messageReadyMsg{index: 0, err: err}
+			return messageReadyMsg{
+				generationID: m.generationID,
+				index:        -1,
+				err:          err,
+			}
 		}
 
 		opts := llm.GenerateOptions{
@@ -211,28 +270,102 @@ func (m Model) startGeneration() tea.Cmd {
 		}
 
 		ch := llm.GenerateMultiple(m.ctx, provider, m.diff, opts, m.total)
-		return startResultsMsg{ch: ch}
+		return startResultsMsg{
+			generationID: m.generationID,
+			ch:           ch,
+		}
 	}
 }
 
-// startResultsMsg delivers the IndexedMessage channel to the model.
+// startResultsMsg delivers the message-event channel to the model.
 type startResultsMsg struct {
-	ch <-chan llm.IndexedMessage
+	generationID int
+	ch           <-chan llm.IndexedMessageEvent
 }
 
-// waitForMessage reads the next IndexedMessage from the channel.
-func waitForMessage(ch <-chan llm.IndexedMessage) tea.Cmd {
+// waitForMessage reads the next IndexedMessageEvent from the channel.
+func waitForMessage(ch <-chan llm.IndexedMessageEvent, generationID int) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-ch
 		if !ok {
-			return allDoneMsg{}
+			return allDoneMsg{generationID: generationID}
 		}
 		return messageReadyMsg{
-			index:   msg.Index,
-			content: msg.Content,
-			err:     msg.Err,
+			generationID: generationID,
+			index:        msg.Index,
+			delta:        msg.Delta,
+			content:      msg.Content,
+			done:         msg.Done,
+			err:          msg.Err,
 		}
 	}
+}
+
+func (m Model) handleGenerationMessage(msg messageReadyMsg) (tea.Model, tea.Cmd) {
+	// Provider construction failures are fatal and happen before any channel exists.
+	if msg.err != nil && m.resultCh == nil {
+		m.commitErr = msg.err
+		m.phase = PhaseDone
+		return m, nil
+	}
+
+	var next tea.Cmd
+	if m.resultCh != nil {
+		next = waitForMessage(m.resultCh, msg.generationID)
+	}
+
+	if msg.index < 0 || msg.index >= len(m.partial) {
+		return m, next
+	}
+	if m.slotDone[msg.index] {
+		return m, next
+	}
+
+	if msg.err != nil {
+		m.slotDone[msg.index] = true
+		m.slotFailed[msg.index] = true
+		m.finished++
+		m.failed++
+		if m.completed == 0 && m.finished >= m.total {
+			m.commitErr = fmt.Errorf("all LLM requests failed: %w", msg.err)
+			m.phase = PhaseDone
+			return m, nil
+		}
+		return m, next
+	}
+
+	if msg.delta != "" {
+		m.partial[msg.index] += msg.delta
+	}
+
+	if msg.done {
+		m.slotDone[msg.index] = true
+		m.finished++
+		if msg.content == "" {
+			m.slotFailed[msg.index] = true
+			m.failed++
+		} else {
+			m.partial[msg.index] = msg.content
+			m.messages = append(m.messages, msg.content)
+			m.completed++
+			if m.phase == PhaseLoading {
+				m.phase = PhaseSelect
+			}
+			if m.cursor >= len(m.messages) {
+				m.cursor = len(m.messages) - 1
+			}
+		}
+	}
+
+	return m, next
+}
+
+func (m Model) pendingCount() int {
+	pending := m.total - m.finished
+	if pending < 0 {
+		return 0
+	}
+	return pending
 }
 
 // Run starts the TUI program.

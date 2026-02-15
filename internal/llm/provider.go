@@ -32,12 +32,24 @@ type IndexedMessage struct {
 	Err     error
 }
 
-// GenerateMultiple launches n independent requests in parallel, each generating
-// a single commit message. Results are sent on the returned channel as they
-// complete. The channel is closed when all requests finish or the context is
-// cancelled.
-func GenerateMultiple(ctx context.Context, provider Provider, diff string, opts GenerateOptions, n int) <-chan IndexedMessage {
-	ch := make(chan IndexedMessage, n)
+// IndexedMessageEvent is a streamed event from one parallel LLM request.
+// Delta carries incremental text chunks. A terminal event has Done=true or Err.
+type IndexedMessageEvent struct {
+	Index   int
+	Delta   string
+	Content string
+	Done    bool
+	Err     error
+}
+
+// GenerateMultiple launches n independent requests in parallel and streams
+// chunk-level events for each request.
+func GenerateMultiple(ctx context.Context, provider Provider, diff string, opts GenerateOptions, n int) <-chan IndexedMessageEvent {
+	buffer := n * 16
+	if buffer < 64 {
+		buffer = 64
+	}
+	ch := make(chan IndexedMessageEvent, buffer)
 	var wg sync.WaitGroup
 
 	for i := 0; i < n; i++ {
@@ -47,28 +59,51 @@ func GenerateMultiple(ctx context.Context, provider Provider, diff string, opts 
 
 			streamCh, err := provider.GenerateCommitMessages(ctx, diff, opts)
 			if err != nil {
-				ch <- IndexedMessage{Index: index, Err: err}
+				ch <- IndexedMessageEvent{Index: index, Err: err}
 				return
 			}
 
 			var buf strings.Builder
 			for chunk := range streamCh {
 				if chunk.Err != nil {
-					ch <- IndexedMessage{Index: index, Err: chunk.Err}
+					ch <- IndexedMessageEvent{Index: index, Err: chunk.Err}
 					return
 				}
+
 				if chunk.Done {
-					break
+					msg := parseMessage(buf.String())
+					if msg == "" {
+						ch <- IndexedMessageEvent{Index: index, Err: context.Canceled}
+						return
+					}
+					ch <- IndexedMessageEvent{
+						Index:   index,
+						Content: msg,
+						Done:    true,
+					}
+					return
 				}
-				buf.WriteString(chunk.Content)
+
+				if chunk.Content != "" {
+					buf.WriteString(chunk.Content)
+					ch <- IndexedMessageEvent{
+						Index: index,
+						Delta: chunk.Content,
+					}
+				}
 			}
 
+			// Defensive fallback: if provider closes without an explicit Done marker.
 			msg := parseMessage(buf.String())
 			if msg == "" {
-				ch <- IndexedMessage{Index: index, Err: context.Canceled}
+				ch <- IndexedMessageEvent{Index: index, Err: context.Canceled}
 				return
 			}
-			ch <- IndexedMessage{Index: index, Content: msg}
+			ch <- IndexedMessageEvent{
+				Index:   index,
+				Content: msg,
+				Done:    true,
+			}
 		}(i)
 	}
 

@@ -56,6 +56,10 @@ func applyDefaults(cfg *config.Config, fromVersion int) {
 		defaults := config.DefaultConfig()
 		cfg.Generation.MaxDiffLines = defaults.Generation.MaxDiffLines
 	}
+	if fromVersion < 2 {
+		// v1 -> v2: UpdateCache introduced, default false (check every run)
+		cfg.UpdateCache = false
+	}
 }
 
 // runMigrationWizard presents huh forms for each new field added since fromVersion.
@@ -83,6 +87,20 @@ func runMigrationWizard(cfg *config.Config, fromVersion int) error {
 		if n, err := strconv.Atoi(maxDiffStr); err == nil {
 			cfg.Generation.MaxDiffLines = n
 		}
+	}
+
+	if fromVersion < 2 {
+		// v1 -> v2: UpdateCache
+		updateCache := cfg.UpdateCache
+		cacheConfirm := huh.NewConfirm().
+			Title("Enable update-check cache?").
+			Description("Yes = ETag + adaptive interval. No = check every run (default).").
+			Value(&updateCache)
+
+		if err := huh.NewForm(huh.NewGroup(cacheConfirm)).Run(); err != nil {
+			return err
+		}
+		cfg.UpdateCache = updateCache
 	}
 
 	return nil

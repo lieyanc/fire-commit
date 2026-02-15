@@ -15,6 +15,8 @@ type keyMap struct {
 	Escape  key.Binding
 	CtrlC   key.Binding
 	Version key.Binding
+	TagInc1 key.Binding
+	TagInc2 key.Binding
 }
 
 var keys = keyMap{
@@ -64,5 +66,13 @@ var keys = keyMap{
 	Version: key.NewBinding(
 		key.WithKeys("v"),
 		key.WithHelp("v", "version tag"),
+	),
+	TagInc1: key.NewBinding(
+		key.WithKeys("alt+1"),
+		key.WithHelp("alt+1", "+0.1"),
+	),
+	TagInc2: key.NewBinding(
+		key.WithKeys("alt+2"),
+		key.WithHelp("alt+2", "+0.01"),
 	),
 }

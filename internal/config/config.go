@@ -22,7 +22,7 @@ type GenerationConfig struct {
 
 // CurrentConfigVersion is bumped when new config fields are added.
 // Existing configs with a lower version will trigger a migration prompt.
-const CurrentConfigVersion = 1
+const CurrentConfigVersion = 2
 
 // Config is the top-level configuration.
 type Config struct {
@@ -38,6 +38,9 @@ type Config struct {
 	// Dev builds ignore this and always auto-update.
 	AutoUpdate   string `yaml:"auto_update,omitempty"`
 	UpdateTiming string `yaml:"update_timing,omitempty"`
+	// UpdateCache controls whether background update checks use cached state
+	// (ETag + adaptive interval). Default false means check every run.
+	UpdateCache bool `yaml:"update_cache"`
 }
 
 // NeedsMigration returns true if the config was created with an older version
@@ -57,6 +60,7 @@ func DefaultConfig() *Config {
 			MaxDiffLines:   4096,
 		},
 		UpdateChannel: "latest",
+		UpdateCache:   false,
 	}
 }
 

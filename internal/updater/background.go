@@ -15,10 +15,11 @@ type BackgroundChecker struct {
 }
 
 // StartBackgroundCheck launches a background goroutine that checks for updates.
-// It uses adaptive scheduling + ETag conditional requests to avoid redundant
-// network calls while still detecting frequent releases quickly.
+// If useCache is false, it checks on every run (no persisted state).
+// If useCache is true, it uses adaptive scheduling + ETag conditional requests
+// to avoid redundant network calls while still detecting frequent releases.
 // The channel parameter determines which releases to consider ("latest" or "stable").
-func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
+func StartBackgroundCheck(currentVersion, channel string, useCache bool) *BackgroundChecker {
 	bc := &BackgroundChecker{
 		done: make(chan struct{}),
 	}
@@ -27,6 +28,19 @@ func StartBackgroundCheck(currentVersion, channel string) *BackgroundChecker {
 		defer close(bc.done)
 
 		bc.result.CurrentVersion = currentVersion
+
+		if !useCache {
+			release, err := FetchLatestRelease(context.Background(), channel)
+			if err != nil {
+				bc.result.Err = err
+				return
+			}
+			latestVersion := release.Version()
+			bc.result.LatestVersion = latestVersion
+			bc.result.HasUpdate = HasNewerVersion(currentVersion, latestVersion, channel)
+			return
+		}
+
 		now := time.Now()
 
 		state, err := loadCheckState()

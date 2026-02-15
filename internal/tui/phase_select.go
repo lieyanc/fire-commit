@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -20,10 +22,16 @@ func (m Model) updateSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case key.Matches(msg, keys.Enter):
+			if len(m.messages) == 0 {
+				return m, nil
+			}
 			m.confirmCursor = confirmCommitOnly
 			m.phase = PhaseConfirm
 			return m, nil
 		case key.Matches(msg, keys.Edit):
+			if len(m.messages) == 0 {
+				return m, nil
+			}
 			m.editArea.SetValue(m.messages[m.cursor])
 			m.editing = true
 			m.phase = PhaseEdit
@@ -57,6 +65,11 @@ func (m Model) viewSelect() string {
 		b.WriteString("\n")
 	}
 
+	if pending := m.pendingCount(); pending > 0 {
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(fmt.Sprintf("Generating %d more suggestion(s) in background...", pending)))
+	}
+
 	b.WriteString(helpStyle.Render("\n  ↑/↓/j/k select • enter confirm • e edit • r regen • q quit"))
 
 	return m.renderBox(b.String())
@@ -68,8 +81,19 @@ func (m *Model) resetForRegeneration() {
 		n = 3
 	}
 
-	m.messages = make([]string, n)
+	if m.cancel != nil {
+		m.cancel()
+	}
+	m.ctx, m.cancel = context.WithCancel(context.Background())
+	m.generationID++
+
+	m.messages = make([]string, 0, n)
+	m.partial = make([]string, n)
+	m.slotDone = make([]bool, n)
+	m.slotFailed = make([]bool, n)
 	m.completed = 0
+	m.finished = 0
+	m.failed = 0
 	m.total = n
 	m.resultCh = nil
 	m.cursor = 0
@@ -80,6 +104,11 @@ func (m *Model) resetForRegeneration() {
 	m.versionTag = ""
 	m.editingTag = false
 	m.tagInput.SetValue("")
+	defaultHints := buildTagHints("")
+	m.tagInput.Placeholder = defaultHints.base
+	m.tagHintBase = defaultHints.base
+	m.tagHintMinor = defaultHints.minor
+	m.tagHintPatch = defaultHints.patch
 	m.tagInput.Blur()
 	m.wantPush = false
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -15,53 +16,17 @@ func (m Model) updateLoading(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case startResultsMsg:
-		m.resultCh = msg.ch
-		return m, waitForMessage(m.resultCh)
-
-	case messageReadyMsg:
-		if msg.err != nil {
-			// If this is the very first result and it's a provider error,
-			// treat it as fatal (e.g. bad API key).
-			if m.completed == 0 && m.resultCh == nil {
-				m.commitErr = msg.err
-				m.phase = PhaseDone
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.Enter):
+			if len(m.messages) > 0 {
+				m.phase = PhaseSelect
 				return m, nil
 			}
-			// Otherwise, shrink total — this slot failed, skip it.
-			m.total--
-			if m.total <= 0 {
-				m.commitErr = fmt.Errorf("all LLM requests failed: %w", msg.err)
-				m.phase = PhaseDone
-				return m, nil
-			}
-			return m, waitForMessage(m.resultCh)
+		case key.Matches(msg, keys.Quit):
+			m.cancel()
+			return m, tea.Quit
 		}
-
-		m.messages[msg.index] = msg.content
-		m.completed++
-
-		if m.completed >= m.total {
-			m.messages = compactMessages(m.messages)
-			if len(m.messages) == 0 {
-				m.commitErr = fmt.Errorf("LLM returned no commit messages")
-				m.phase = PhaseDone
-				return m, nil
-			}
-			m.phase = PhaseSelect
-			return m, nil
-		}
-		return m, waitForMessage(m.resultCh)
-
-	case allDoneMsg:
-		m.messages = compactMessages(m.messages)
-		if len(m.messages) == 0 {
-			m.commitErr = fmt.Errorf("LLM returned no commit messages")
-			m.phase = PhaseDone
-			return m, nil
-		}
-		m.phase = PhaseSelect
-		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -76,35 +41,48 @@ func (m Model) viewLoading() string {
 	b.WriteString(titleStyle.Render("🔥 fire-commit"))
 	b.WriteString("\n\n")
 
-	b.WriteString(fmt.Sprintf("%s Generating commit messages (%d/%d)...\n",
-		m.spinner.View(), m.completed, m.total))
+	b.WriteString(fmt.Sprintf("%s Generating commit messages (%d/%d finished, %d ready)\n",
+		m.spinner.View(), m.finished, m.total, m.completed))
 
-	// Show completed messages
-	for i, msg := range m.messages {
-		if msg != "" {
+	for i := 0; i < m.total; i++ {
+		preview := compactPreview(m.partial[i])
+		switch {
+		case m.slotFailed[i]:
 			b.WriteString("\n")
-			b.WriteString(renderWrappedLine("  ✓ ", "  "+successStyle.Render("✓")+" ", msg, dimStyle, contentWidth))
-		} else if i < m.total {
+			b.WriteString(renderWrappedLine("  ✗ ", "  "+errorStyle.Render("✗")+" ", "request failed", dimStyle, contentWidth))
+		case m.slotDone[i]:
+			b.WriteString("\n")
+			if preview == "" {
+				preview = "(empty response)"
+			}
+			b.WriteString(renderWrappedLine("  ✓ ", "  "+successStyle.Render("✓")+" ", preview, dimStyle, contentWidth))
+		case preview != "":
+			b.WriteString("\n")
+			b.WriteString(renderWrappedLine("  ~ ", "  "+selectedStyle.Render("~")+" ", preview, dimStyle, contentWidth))
+		default:
 			b.WriteString("\n")
 			b.WriteString(renderWrappedLine("    ", "    ", "...", dimStyle, contentWidth))
 		}
 	}
 
-	if m.stat != "" && m.completed == 0 {
+	if m.stat != "" && m.finished == 0 {
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render(wrapText(m.stat, contentWidth)))
+	}
+
+	if len(m.messages) > 0 {
+		b.WriteString(helpStyle.Render("\n\n  enter select ready messages • q quit"))
+	} else {
+		b.WriteString(helpStyle.Render("\n\n  q quit"))
 	}
 
 	return m.renderBox(b.String())
 }
 
-// compactMessages removes empty strings from the messages slice.
-func compactMessages(msgs []string) []string {
-	var result []string
-	for _, m := range msgs {
-		if m != "" {
-			result = append(result, m)
-		}
+func compactPreview(s string) string {
+	if s == "" {
+		return ""
 	}
-	return result
+	oneLine := strings.ReplaceAll(s, "\n", " ")
+	return strings.Join(strings.Fields(oneLine), " ")
 }

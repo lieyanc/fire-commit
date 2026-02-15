@@ -28,6 +28,9 @@ func main() {
 	// Determine update timing: "before" or "after" (default)
 	timing := updateTiming(cfg, cfgErr)
 
+	// Determine whether update-check cache is enabled.
+	useUpdateCache := updateCacheEnabled(cfg, cfgErr)
+
 	// Don't auto-check when running explicit self-management commands.
 	// This prevents duplicate updates for "firecommit update", and avoids
 	// immediately re-upgrading after "firecommit rollback".
@@ -36,7 +39,7 @@ func main() {
 	// Start background update check unless disabled
 	var checker *updater.BackgroundChecker
 	if mode != "n" && !skipAutoCheck {
-		checker = updater.StartBackgroundCheck(version, channel)
+		checker = updater.StartBackgroundCheck(version, channel, useUpdateCache)
 	}
 
 	// Handle "before" timing: wait for check result before running the command
@@ -113,6 +116,15 @@ func updateTiming(cfg *config.Config, cfgErr error) string {
 		return "before"
 	}
 	return "after"
+}
+
+// updateCacheEnabled returns whether background update checks should use cache.
+// Default false means check every run.
+func updateCacheEnabled(cfg *config.Config, cfgErr error) bool {
+	if cfgErr != nil || cfg == nil {
+		return false
+	}
+	return cfg.UpdateCache
 }
 
 // shouldSkipAutoCheck returns true for commands that manage versions directly.

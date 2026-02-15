@@ -47,10 +47,7 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Enter tag editing mode
 				m.editingTag = true
 				m.tagInput.SetValue("")
-				m.tagInput.Placeholder = git.LatestTag()
-				if m.tagInput.Placeholder == "" {
-					m.tagInput.Placeholder = "v1.0.0"
-				}
+				m.refreshTagHints()
 				m.tagInput.Focus()
 				return m, m.tagInput.Cursor.BlinkCmd()
 			}
@@ -79,9 +76,24 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateTagInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.TagInc1):
+			if m.tagHintMinor != "" {
+				m.tagInput.SetValue(m.tagHintMinor)
+				m.tagInput.CursorEnd()
+			}
+			return m, nil
+		case key.Matches(msg, keys.TagInc2):
+			if m.tagHintPatch != "" {
+				m.tagInput.SetValue(m.tagHintPatch)
+				m.tagInput.CursorEnd()
+			}
+			return m, nil
+		}
+
 		switch msg.Type {
 		case tea.KeyEnter:
-			val := strings.TrimSpace(m.tagInput.Value())
+			val := m.resolveTagShortcut(strings.TrimSpace(m.tagInput.Value()))
 			if val != "" {
 				m.versionTag = val
 			}
@@ -99,6 +111,25 @@ func (m Model) updateTagInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *Model) refreshTagHints() {
+	hints := buildTagHints(git.LatestTag())
+	m.tagHintBase = hints.base
+	m.tagHintMinor = hints.minor
+	m.tagHintPatch = hints.patch
+	m.tagInput.Placeholder = hints.base
+}
+
+func (m Model) resolveTagShortcut(val string) string {
+	switch val {
+	case "+0.1":
+		return m.tagHintMinor
+	case "+0.01":
+		return m.tagHintPatch
+	default:
+		return val
+	}
+}
+
 func (m Model) viewConfirm() string {
 	var b strings.Builder
 	contentWidth := m.contentWidth()
@@ -113,6 +144,8 @@ func (m Model) viewConfirm() string {
 	if m.editingTag {
 		b.WriteString("Version tag: ")
 		b.WriteString(m.tagInput.View())
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  last: %s • alt+1/+0.1 -> %s • alt+2/+0.01 -> %s", m.tagHintBase, m.tagHintMinor, m.tagHintPatch)))
 		b.WriteString("\n\n")
 	} else if m.versionTag != "" {
 		b.WriteString("Version tag: ")
@@ -135,7 +168,11 @@ func (m Model) viewConfirm() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(helpStyle.Render("\n  ↑/↓/tab select • enter confirm • p toggle push • v version • esc back • q quit"))
+	if m.editingTag {
+		b.WriteString(helpStyle.Render("\n  enter set tag • alt+1/+0.1 bump minor • alt+2/+0.01 bump patch • esc back • q quit"))
+	} else {
+		b.WriteString(helpStyle.Render("\n  ↑/↓/tab select • enter confirm • p toggle push • v version • esc back • q quit"))
+	}
 
 	return m.renderBox(b.String())
 }

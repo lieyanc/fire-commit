@@ -39,7 +39,11 @@ func RunConfigEditor(cfg *config.Config) (*config.Config, error) {
 		if timing == "" {
 			timing = "after"
 		}
-		updateSummary := fmt.Sprintf("channel: %s, timing: %s", ch, timing)
+		cache := "off"
+		if cfg.UpdateCache {
+			cache = "on"
+		}
+		updateSummary := fmt.Sprintf("channel: %s, timing: %s, cache: %s", ch, timing, cache)
 
 		menu := huh.NewSelect[string]().
 			Title("What would you like to configure?").
@@ -234,6 +238,7 @@ func editUpdateSettings(cfg *config.Config) error {
 	if updateTiming == "" {
 		updateTiming = "after"
 	}
+	updateCache := cfg.UpdateCache
 
 	channelSelect := huh.NewSelect[string]().
 		Title("Update channel").
@@ -260,12 +265,18 @@ func editUpdateSettings(cfg *config.Config) error {
 		).
 		Value(&updateTiming)
 
-	if err := huh.NewForm(huh.NewGroup(channelSelect, autoUpdateSelect, timingSelect)).Run(); err != nil {
+	cacheConfirm := huh.NewConfirm().
+		Title("Enable update-check cache").
+		Description("Yes: ETag + adaptive interval. No: check every run (default).").
+		Value(&updateCache)
+
+	if err := huh.NewForm(huh.NewGroup(channelSelect, autoUpdateSelect, timingSelect, cacheConfirm)).Run(); err != nil {
 		return err
 	}
 
 	cfg.UpdateChannel = updateChannel
 	cfg.AutoUpdate = autoUpdate
 	cfg.UpdateTiming = updateTiming
+	cfg.UpdateCache = updateCache
 	return nil
 }

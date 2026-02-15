@@ -89,6 +89,50 @@ func TestShouldSkipAutoCheck(t *testing.T) {
 	}
 }
 
+func TestUpdateCacheEnabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		cfg    *config.Config
+		cfgErr bool
+		want   bool
+	}{
+		{
+			name:   "missing config defaults disabled",
+			cfgErr: true,
+			want:   false,
+		},
+		{
+			name: "explicit false",
+			cfg:  &config.Config{UpdateCache: false},
+			want: false,
+		},
+		{
+			name: "explicit true",
+			cfg:  &config.Config{UpdateCache: true},
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var err error
+			if tc.cfgErr {
+				err = assertErr{}
+			}
+
+			got := updateCacheEnabled(tc.cfg, err)
+			if got != tc.want {
+				t.Fatalf("updateCacheEnabled() got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 type assertErr struct{}
 
 func (assertErr) Error() string { return "test err" }
