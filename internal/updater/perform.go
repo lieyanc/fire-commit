@@ -84,6 +84,11 @@ func SelfUpdate(ctx context.Context, currentVersion, channel string) error {
 		return fmt.Errorf("could not resolve executable path: %w", err)
 	}
 
+	// Archive current binary before replacing (failure is non-fatal).
+	if err := ArchiveCurrentBinary(currentVersion); err != nil {
+		fmt.Printf("Warning: could not archive current binary: %v\n", err)
+	}
+
 	// Atomic replace: rename old, copy new, remove old
 	oldPath := execPath + ".old"
 	if err := os.Rename(execPath, oldPath); err != nil {
@@ -108,6 +113,12 @@ func SelfUpdate(ctx context.Context, currentVersion, channel string) error {
 	recreateLinks(binDir, baseName)
 
 	fmt.Printf("Successfully updated to %s\n", latestVersion)
+
+	// Prune old archives to keep at most 5 versions (failure is non-fatal).
+	if err := PruneArchive(5); err != nil {
+		fmt.Printf("Warning: could not prune version archive: %v\n", err)
+	}
+
 	return nil
 }
 
