@@ -202,29 +202,47 @@ func TestFetchLatestReleaseConditionalUsesETag(t *testing.T) {
 		http.DefaultClient = oldClient
 	})
 
+	latestETag := formatLatestChannelETags("\"stable-etag-1\"", "\"dev-etag-1\"")
+	calls := map[string]int{}
 	http.DefaultClient = &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			if got, want := req.Header.Get("If-None-Match"), "\"etag-1\""; got != want {
-				t.Fatalf("If-None-Match mismatch: got %q want %q", got, want)
-			}
-			if req.URL.Path != "/repos/lieyanc/fire-commit/releases" {
+			calls[req.URL.Path]++
+			switch req.URL.Path {
+			case "/repos/lieyanc/fire-commit/releases/latest":
+				if got, want := req.Header.Get("If-None-Match"), "\"stable-etag-1\""; got != want {
+					t.Fatalf("stable If-None-Match mismatch: got %q want %q", got, want)
+				}
+				resp := &http.Response{
+					StatusCode: http.StatusNotModified,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    req,
+				}
+				resp.Header.Set("ETag", "\"stable-etag-2\"")
+				return resp, nil
+			case "/repos/lieyanc/fire-commit/releases/tags/dev":
+				if got, want := req.Header.Get("If-None-Match"), "\"dev-etag-1\""; got != want {
+					t.Fatalf("dev If-None-Match mismatch: got %q want %q", got, want)
+				}
+				resp := &http.Response{
+					StatusCode: http.StatusNotModified,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    req,
+				}
+				resp.Header.Set("ETag", "\"dev-etag-2\"")
+				return resp, nil
+			default:
 				t.Fatalf("unexpected request path: %s", req.URL.Path)
 			}
-			resp := &http.Response{
-				StatusCode: http.StatusNotModified,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("")),
-				Request:    req,
-			}
-			resp.Header.Set("ETag", "\"etag-2\"")
-			return resp, nil
+			return nil, nil
 		}),
 	}
 
 	release, etag, notModified, err := FetchLatestReleaseConditional(
 		context.Background(),
 		ChannelLatest,
-		"\"etag-1\"",
+		latestETag,
 	)
 	if err != nil {
 		t.Fatalf("FetchLatestReleaseConditional() error: %v", err)
@@ -235,8 +253,12 @@ func TestFetchLatestReleaseConditionalUsesETag(t *testing.T) {
 	if !notModified {
 		t.Fatalf("notModified should be true on 304")
 	}
-	if etag != "\"etag-2\"" {
-		t.Fatalf("etag mismatch: got %q want %q", etag, "\"etag-2\"")
+	if calls["/repos/lieyanc/fire-commit/releases/latest"] != 1 || calls["/repos/lieyanc/fire-commit/releases/tags/dev"] != 1 {
+		t.Fatalf("unexpected call counts: %#v", calls)
+	}
+	parsed := parseLatestChannelETags(etag)
+	if parsed.Stable != "\"stable-etag-2\"" || parsed.Dev != "\"dev-etag-2\"" {
+		t.Fatalf("etag mismatch: got stable=%q dev=%q", parsed.Stable, parsed.Dev)
 	}
 }
 
@@ -291,20 +313,31 @@ func TestFetchLatestReleaseConditionalPicksNewestPublished(t *testing.T) {
 
 	http.DefaultClient = &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			if req.URL.Path != "/repos/lieyanc/fire-commit/releases" {
+			switch req.URL.Path {
+			case "/repos/lieyanc/fire-commit/releases/latest":
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						`{"tag_name":"v1.2.3","name":"v1.2.3","prerelease":false,"draft":false,"published_at":"2026-02-14T12:00:00Z","assets":[]}`,
+					)),
+					Request: req,
+				}
+				return resp, nil
+			case "/repos/lieyanc/fire-commit/releases/tags/dev":
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						`{"tag_name":"dev","name":"dev-200-20260215-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-15T12:00:00Z","assets":[]}`,
+					)),
+					Request: req,
+				}
+				return resp, nil
+			default:
 				t.Fatalf("unexpected request path: %s", req.URL.Path)
 			}
-			resp := &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     make(http.Header),
-				Body: io.NopCloser(strings.NewReader(`[
-{"tag_name":"v1.2.3","name":"v1.2.3","prerelease":false,"draft":false,"published_at":"2026-02-14T12:00:00Z","assets":[]},
-{"tag_name":"dev","name":"dev-200-20260215-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-15T12:00:00Z","assets":[]},
-{"tag_name":"v9.9.9","name":"v9.9.9","prerelease":false,"draft":true,"published_at":"2026-02-16T12:00:00Z","assets":[]}
-]`)),
-				Request: req,
-			}
-			return resp, nil
+			return nil, nil
 		}),
 	}
 
@@ -324,6 +357,136 @@ func TestFetchLatestReleaseConditionalPicksNewestPublished(t *testing.T) {
 	}
 	if got, want := release.Version(), "dev-200-20260215-abc1234"; got != want {
 		t.Fatalf("version mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestFetchLatestReleaseConditionalLatestFallsBackToStable(t *testing.T) {
+	oldClient := http.DefaultClient
+	t.Cleanup(func() {
+		http.DefaultClient = oldClient
+	})
+
+	http.DefaultClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.Path {
+			case "/repos/lieyanc/fire-commit/releases/latest":
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						`{"tag_name":"v1.2.3","name":"v1.2.3","prerelease":false,"draft":false,"published_at":"2026-02-14T12:00:00Z","assets":[]}`,
+					)),
+					Request: req,
+				}
+				return resp, nil
+			case "/repos/lieyanc/fire-commit/releases/tags/dev":
+				resp := &http.Response{
+					StatusCode: http.StatusNotFound,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"message":"Not Found"}`)),
+					Request:    req,
+				}
+				return resp, nil
+			default:
+				t.Fatalf("unexpected request path: %s", req.URL.Path)
+			}
+			return nil, nil
+		}),
+	}
+
+	release, _, notModified, err := FetchLatestReleaseConditional(
+		context.Background(),
+		ChannelLatest,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("FetchLatestReleaseConditional() error: %v", err)
+	}
+	if notModified {
+		t.Fatalf("notModified should be false on 200/404")
+	}
+	if release == nil || release.Version() != "v1.2.3" {
+		t.Fatalf("unexpected release: %#v", release)
+	}
+}
+
+func TestFetchLatestReleaseConditionalLatestRefetchesNotModifiedSide(t *testing.T) {
+	oldClient := http.DefaultClient
+	t.Cleanup(func() {
+		http.DefaultClient = oldClient
+	})
+
+	latestETag := formatLatestChannelETags("\"stable-etag-1\"", "\"dev-etag-1\"")
+	devCalls := 0
+
+	http.DefaultClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.Path {
+			case "/repos/lieyanc/fire-commit/releases/latest":
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						`{"tag_name":"v1.2.3","name":"v1.2.3","prerelease":false,"draft":false,"published_at":"2026-02-16T12:00:00Z","assets":[]}`,
+					)),
+					Request: req,
+				}
+				return resp, nil
+			case "/repos/lieyanc/fire-commit/releases/tags/dev":
+				devCalls++
+				if devCalls == 1 {
+					if got, want := req.Header.Get("If-None-Match"), "\"dev-etag-1\""; got != want {
+						t.Fatalf("dev If-None-Match mismatch: got %q want %q", got, want)
+					}
+					resp := &http.Response{
+						StatusCode: http.StatusNotModified,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader("")),
+						Request:    req,
+					}
+					resp.Header.Set("ETag", "\"dev-etag-2\"")
+					return resp, nil
+				}
+				if got := req.Header.Get("If-None-Match"); got != "" {
+					t.Fatalf("dev refetch should not send If-None-Match, got %q", got)
+				}
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						`{"tag_name":"dev","name":"dev-300-20260217-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-17T12:00:00Z","assets":[]}`,
+					)),
+					Request: req,
+				}
+				resp.Header.Set("ETag", "\"dev-etag-3\"")
+				return resp, nil
+			default:
+				t.Fatalf("unexpected request path: %s", req.URL.Path)
+			}
+			return nil, nil
+		}),
+	}
+
+	release, etag, notModified, err := FetchLatestReleaseConditional(
+		context.Background(),
+		ChannelLatest,
+		latestETag,
+	)
+	if err != nil {
+		t.Fatalf("FetchLatestReleaseConditional() error: %v", err)
+	}
+	if notModified {
+		t.Fatalf("notModified should be false when one side changed")
+	}
+	if release == nil || release.Version() != "dev-300-20260217-abc1234" {
+		t.Fatalf("unexpected release: %#v", release)
+	}
+	if devCalls != 2 {
+		t.Fatalf("dev endpoint should be called twice, got %d", devCalls)
+	}
+	parsed := parseLatestChannelETags(etag)
+	if parsed.Dev != "\"dev-etag-3\"" {
+		t.Fatalf("dev etag mismatch: got %q", parsed.Dev)
 	}
 }
 

@@ -59,8 +59,8 @@ type CheckResult struct {
 
 // FetchLatestRelease fetches the latest release from GitHub based on the channel.
 // For "stable", it fetches /releases/latest (GitHub excludes pre-releases).
-// For "latest", it fetches /releases and selects the newest published release,
-// regardless of stable/pre-release.
+// For "latest", it fetches both stable and dev endpoints and selects the
+// newest published release regardless of stable/pre-release.
 func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 	release, _, notModified, err := FetchLatestReleaseConditional(ctx, channel, "")
 	if err != nil {
@@ -76,20 +76,113 @@ func FetchLatestRelease(ctx context.Context, channel string) (*Release, error) {
 // conditional requests. If etag is non-empty, it is sent via If-None-Match.
 // It returns notModified=true when GitHub responds with HTTP 304.
 func FetchLatestReleaseConditional(ctx context.Context, channel, etag string) (*Release, string, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 
-	var url string
-	switch channel {
-	case ChannelStable:
-		url = apiBase + "/releases/latest"
-	default:
-		url = apiBase + "/releases?per_page=20"
+	if channel == ChannelStable {
+		release, responseETag, _, status, err := fetchReleaseByURL(ctx, apiBase+"/releases/latest", etag)
+		if err != nil {
+			return nil, "", false, err
+		}
+		if status == http.StatusNotModified {
+			return nil, responseETag, true, nil
+		}
+		if status != http.StatusOK {
+			return nil, responseETag, false, fmt.Errorf("GitHub API returned status %d", status)
+		}
+		if release == nil {
+			return nil, responseETag, false, fmt.Errorf("no release payload available")
+		}
+		return release, responseETag, false, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	return fetchLatestChannelRelease(ctx, etag)
+}
+
+type latestChannelETags struct {
+	Stable string `json:"stable,omitempty"`
+	Dev    string `json:"dev,omitempty"`
+}
+
+func fetchLatestChannelRelease(ctx context.Context, etag string) (*Release, string, bool, error) {
+	cached := parseLatestChannelETags(etag)
+
+	stableURL := apiBase + "/releases/latest"
+	devURL := apiBase + "/releases/tags/dev"
+
+	stableRelease, stableETag, stableNotModified, stableStatus, err := fetchReleaseByURL(ctx, stableURL, cached.Stable)
 	if err != nil {
 		return nil, "", false, err
+	}
+	if stableStatus != http.StatusOK && stableStatus != http.StatusNotModified {
+		return nil, stableETag, false, fmt.Errorf("GitHub API returned status %d for stable endpoint", stableStatus)
+	}
+
+	devRelease, devETag, devNotModified, devStatus, err := fetchReleaseByURL(ctx, devURL, cached.Dev)
+	if err != nil {
+		return nil, "", false, err
+	}
+	switch devStatus {
+	case http.StatusOK, http.StatusNotModified, http.StatusNotFound:
+	default:
+		return nil, devETag, false, fmt.Errorf("GitHub API returned status %d for dev endpoint", devStatus)
+	}
+
+	if stableETag == "" {
+		stableETag = cached.Stable
+	}
+	if devETag == "" {
+		devETag = cached.Dev
+	}
+	responseETag := formatLatestChannelETags(stableETag, devETag)
+
+	// Both endpoints unchanged (or dev endpoint absent before and now).
+	if stableNotModified && (devNotModified || (devStatus == http.StatusNotFound && cached.Dev == "")) {
+		return nil, responseETag, true, nil
+	}
+
+	// If only one endpoint changed, the 304 side has no payload. Re-fetch that side
+	// without If-None-Match so we can compare published_at accurately.
+	if stableStatus == http.StatusNotModified {
+		stableRelease, stableETag, _, stableStatus, err = fetchReleaseByURL(ctx, stableURL, "")
+		if err != nil {
+			return nil, "", false, err
+		}
+		if stableStatus != http.StatusOK {
+			return nil, stableETag, false, fmt.Errorf("GitHub API returned status %d for stable endpoint", stableStatus)
+		}
+	}
+	if devStatus == http.StatusNotModified {
+		devRelease, devETag, _, devStatus, err = fetchReleaseByURL(ctx, devURL, "")
+		if err != nil {
+			return nil, "", false, err
+		}
+		switch devStatus {
+		case http.StatusOK, http.StatusNotFound:
+		default:
+			return nil, devETag, false, fmt.Errorf("GitHub API returned status %d for dev endpoint", devStatus)
+		}
+	}
+
+	if stableETag == "" {
+		stableETag = cached.Stable
+	}
+	if devETag == "" {
+		devETag = cached.Dev
+	}
+	responseETag = formatLatestChannelETags(stableETag, devETag)
+
+	latest := newerPublishedRelease(stableRelease, devRelease)
+	if latest == nil {
+		return nil, responseETag, false, fmt.Errorf("no releases found")
+	}
+	return latest, responseETag, false, nil
+}
+
+func fetchReleaseByURL(ctx context.Context, url, etag string) (*Release, string, bool, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", false, 0, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	if etag != "" {
@@ -98,60 +191,65 @@ func FetchLatestReleaseConditional(ctx context.Context, channel, etag string) (*
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, "", false, err
+		return nil, "", false, 0, err
 	}
 	defer resp.Body.Close()
 
 	responseETag := resp.Header.Get("ETag")
-
 	if resp.StatusCode == http.StatusNotModified {
-		return nil, responseETag, true, nil
+		return nil, responseETag, true, http.StatusNotModified, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, responseETag, false, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		return nil, responseETag, false, resp.StatusCode, nil
 	}
 
-	if channel == ChannelStable {
-		var release Release
-		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-			return nil, responseETag, false, err
-		}
-		return &release, responseETag, false, nil
+	var release Release
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, responseETag, false, http.StatusOK, err
 	}
-
-	// Latest channel: decode as array and select the newest published release.
-	var releases []Release
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return nil, responseETag, false, err
+	if release.Draft {
+		return nil, responseETag, false, http.StatusNotFound, nil
 	}
-	latest := newestPublishedRelease(releases)
-	if latest == nil {
-		return nil, responseETag, false, fmt.Errorf("no releases found")
-	}
-	return latest, responseETag, false, nil
+	return &release, responseETag, false, http.StatusOK, nil
 }
 
-func newestPublishedRelease(releases []Release) *Release {
-	var newest *Release
-	for i := range releases {
-		r := &releases[i]
-		if r.Draft {
-			continue
-		}
-		if newest == nil {
-			newest = r
-			continue
-		}
-		// Prefer entries with published timestamps, then compare recency.
-		if newest.PublishedAt.IsZero() && !r.PublishedAt.IsZero() {
-			newest = r
-			continue
-		}
-		if !r.PublishedAt.IsZero() && r.PublishedAt.After(newest.PublishedAt) {
-			newest = r
-		}
+func parseLatestChannelETags(raw string) latestChannelETags {
+	var out latestChannelETags
+	if raw == "" || !strings.HasPrefix(raw, "{") {
+		return out
 	}
-	return newest
+	_ = json.Unmarshal([]byte(raw), &out)
+	return out
+}
+
+func formatLatestChannelETags(stable, dev string) string {
+	if stable == "" && dev == "" {
+		return ""
+	}
+	b, err := json.Marshal(latestChannelETags{Stable: stable, Dev: dev})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func newerPublishedRelease(a, b *Release) *Release {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	if a.PublishedAt.IsZero() && !b.PublishedAt.IsZero() {
+		return b
+	}
+	if b.PublishedAt.IsZero() && !a.PublishedAt.IsZero() {
+		return a
+	}
+	if b.PublishedAt.After(a.PublishedAt) {
+		return b
+	}
+	return a
 }
 
 // IsDevVersion returns true for local dev builds ("dev") and CI dev builds
