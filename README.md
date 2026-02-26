@@ -6,7 +6,9 @@ Analyzes your staged git diff, streams multiple commit message suggestions via L
 
 ## Install
 
-**One-line install** (Linux / macOS):
+### Linux / macOS
+
+**One-line install:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.sh | bash
@@ -24,7 +26,31 @@ curl -fsSL https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.
 curl -fsSL https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.sh | bash -s -- --stable
 ```
 
-**From source** (requires Go 1.25+):
+### Windows
+
+**One-line install** (PowerShell):
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.ps1 | iex
+```
+
+This downloads the latest release to `%USERPROFILE%\.fire-commit\bin\` and adds it to your user PATH. An interactive menu lets you choose between the **latest** and **stable** channels.
+
+For non-interactive use:
+
+```powershell
+# Install from latest channel (default)
+& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.ps1))) -Channel latest
+
+# Install from stable channel only
+& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/lieyanc/fire-commit/master/install.ps1))) -Channel stable
+```
+
+> **Note:** On Windows, `fcmt.exe` and `git-fire-commit.exe` are separate copies of the binary (Windows does not support symlinks). The config is stored at `%APPDATA%\firecommit\config.yaml`.
+
+### From source
+
+Requires Go 1.21+:
 
 ```sh
 git clone https://github.com/lieyanc/fire-commit.git
