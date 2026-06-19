@@ -34,7 +34,7 @@ type Release struct {
 
 // Version returns the version string for this release.
 // For dev pre-releases (tag "dev"), returns the release Name
-// (e.g. "dev-1234-20260214-abc1234").
+// (e.g. "dev-0024-20260214-abc1234").
 // For stable releases, returns the TagName.
 func (r *Release) Version() string {
 	if r.Prerelease && r.TagName == "dev" {
@@ -259,7 +259,7 @@ func IsDevVersion(v string) bool {
 }
 
 // parseDevVersion parses dev version strings:
-//   - Current format:  dev-<build>-<date>-<hash>
+//   - Current format:  dev-<build>-<date>-<hash> (build may be zero-padded)
 //   - Previous format: dev-<date>-<build>-<hash>
 //   - Legacy format:   dev-<date>-<hash> (build number treated as 0)
 func parseDevVersion(v string) (date string, build int, ok bool) {
@@ -339,26 +339,7 @@ func HasNewerVersion(current, latest, channel string) bool {
 
 	// Latest channel: dev versions use build number + date comparison.
 	if currentIsDev && latestIsDev {
-		curDate, curBuild, curOK := parseDevVersion(current)
-		latDate, latBuild, latOK := parseDevVersion(latest)
-		if curOK && latOK {
-			// Build number is the primary ordering key.
-			if latBuild != curBuild {
-				return latBuild > curBuild
-			}
-			// Date is a secondary tie-breaker.
-			return latDate > curDate
-		}
-		// If the current version is unparsable but latest is valid dev format,
-		// prefer upgrading to recover to a known format.
-		if latOK && !curOK {
-			return true
-		}
-		if curDate != "" && latDate != "" {
-			return latDate > curDate
-		}
-		// Two unparsable dev strings: prefer updating to recover to published head.
-		return true
+		return hasNewerDevVersion(current, latest)
 	}
 
 	// Latest channel includes both stable and dev releases. If release type changed,
@@ -368,6 +349,33 @@ func HasNewerVersion(current, latest, channel string) bool {
 	}
 
 	return compareSemverWithRecovery(current, latest)
+}
+
+func hasNewerDevVersion(current, latest string) bool {
+	curDate, curBuild, curOK := parseDevVersion(current)
+	latDate, latBuild, latOK := parseDevVersion(latest)
+
+	if curOK && latOK {
+		// Build number is the primary ordering key. It is parsed numerically so
+		// zero-padded values like "0024" and "24" compare the same way.
+		if latBuild != curBuild {
+			return latBuild > curBuild
+		}
+		// Date is only a tie-breaker for manual/rerun edge cases.
+		return latDate > curDate
+	}
+
+	if latOK {
+		// Recover local or older malformed dev builds to the published format.
+		return true
+	}
+	if curOK {
+		// Do not replace a parseable dev build with a malformed dev release name.
+		return false
+	}
+
+	// Two unparsable dev strings: prefer updating to recover to published head.
+	return true
 }
 
 func compareSemverWithRecovery(current, latest string) bool {

@@ -25,7 +25,8 @@ jobs:
       - name: Compute version
         id: version
         run: |
-          DEV_VERSION="dev-${GITHUB_RUN_NUMBER}-$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+          RUN_NUMBER="$(printf '%04d' "${GITHUB_RUN_NUMBER}")"
+          DEV_VERSION="dev-${RUN_NUMBER}-$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
           echo "DEV_VERSION=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Cross-build

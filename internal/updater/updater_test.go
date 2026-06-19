@@ -20,9 +20,9 @@ func TestParseDevVersion(t *testing.T) {
 	}{
 		{
 			name:  "new format",
-			in:    "dev-1234-20260215-abc1234",
+			in:    "dev-0024-20260215-abc1234",
 			date:  "20260215",
-			build: 1234,
+			build: 24,
 			ok:    true,
 		},
 		{
@@ -80,46 +80,52 @@ func TestHasNewerVersionDev(t *testing.T) {
 		want    bool
 	}{
 		{
-			name:    "same date higher build",
-			current: "dev-10-20260215-aaaaaaa",
-			latest:  "dev-11-20260215-bbbbbbb",
+			name:    "same date higher zero-padded build",
+			current: "dev-0010-20260215-aaaaaaa",
+			latest:  "dev-0011-20260215-bbbbbbb",
 			want:    true,
 		},
 		{
-			name:    "same date lower build",
-			current: "dev-11-20260215-bbbbbbb",
-			latest:  "dev-10-20260215-aaaaaaa",
+			name:    "same date lower zero-padded build",
+			current: "dev-0011-20260215-bbbbbbb",
+			latest:  "dev-0010-20260215-aaaaaaa",
 			want:    false,
 		},
 		{
 			name:    "higher build wins even if date older",
-			current: "dev-100-20260216-aaaaaaa",
-			latest:  "dev-101-20260215-bbbbbbb",
+			current: "dev-0100-20260216-aaaaaaa",
+			latest:  "dev-0101-20260215-bbbbbbb",
 			want:    true,
 		},
 		{
 			name:    "same build uses date as tie breaker",
-			current: "dev-100-20260214-aaaaaaa",
-			latest:  "dev-100-20260215-bbbbbbb",
+			current: "dev-0100-20260214-aaaaaaa",
+			latest:  "dev-0100-20260215-bbbbbbb",
 			want:    true,
 		},
 		{
 			name:    "legacy current can upgrade to new format",
 			current: "dev-20260215-aaaaaaa",
-			latest:  "dev-1-20260215-bbbbbbb",
+			latest:  "dev-0001-20260215-bbbbbbb",
 			want:    true,
 		},
 		{
 			name:    "previous format is still comparable",
 			current: "dev-20260215-10-aaaaaaa",
-			latest:  "dev-11-20260215-bbbbbbb",
+			latest:  "dev-0011-20260215-bbbbbbb",
 			want:    true,
 		},
 		{
 			name:    "local dev always updates",
 			current: "dev",
-			latest:  "dev-1-20260215-bbbbbbb",
+			latest:  "dev-0001-20260215-bbbbbbb",
 			want:    true,
+		},
+		{
+			name:    "parseable current ignores malformed latest",
+			current: "dev-0024-20260215-aaaaaaa",
+			latest:  "dev-bad-20260216-bbbbbbb",
+			want:    false,
 		},
 	}
 
@@ -329,7 +335,7 @@ func TestFetchLatestReleaseConditionalPicksNewestPublished(t *testing.T) {
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
 					Body: io.NopCloser(strings.NewReader(
-						`{"tag_name":"dev","name":"dev-200-20260215-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-15T12:00:00Z","assets":[]}`,
+						`{"tag_name":"dev","name":"dev-0200-20260215-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-15T12:00:00Z","assets":[]}`,
 					)),
 					Request: req,
 				}
@@ -355,7 +361,7 @@ func TestFetchLatestReleaseConditionalPicksNewestPublished(t *testing.T) {
 	if release == nil {
 		t.Fatalf("release should not be nil")
 	}
-	if got, want := release.Version(), "dev-200-20260215-abc1234"; got != want {
+	if got, want := release.Version(), "dev-0200-20260215-abc1234"; got != want {
 		t.Fatalf("version mismatch: got %q want %q", got, want)
 	}
 }
@@ -454,7 +460,7 @@ func TestFetchLatestReleaseConditionalLatestRefetchesNotModifiedSide(t *testing.
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
 					Body: io.NopCloser(strings.NewReader(
-						`{"tag_name":"dev","name":"dev-300-20260217-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-17T12:00:00Z","assets":[]}`,
+						`{"tag_name":"dev","name":"dev-0300-20260217-abc1234","prerelease":true,"draft":false,"published_at":"2026-02-17T12:00:00Z","assets":[]}`,
 					)),
 					Request: req,
 				}
@@ -478,7 +484,7 @@ func TestFetchLatestReleaseConditionalLatestRefetchesNotModifiedSide(t *testing.
 	if notModified {
 		t.Fatalf("notModified should be false when one side changed")
 	}
-	if release == nil || release.Version() != "dev-300-20260217-abc1234" {
+	if release == nil || release.Version() != "dev-0300-20260217-abc1234" {
 		t.Fatalf("unexpected release: %#v", release)
 	}
 	if devCalls != 2 {

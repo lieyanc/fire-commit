@@ -192,7 +192,7 @@ The channel is set during installation and stored in `update_channel` in your co
 
 ### Dev Builds
 
-Every push to `master` triggers an automated dev build. These are published as pre-releases under the rolling `dev` tag with version strings like `dev-1234-20260214-abc1234` (`build-date-hash`).
+Every push to `master` triggers an automated dev build. These are published as pre-releases under the rolling `dev` tag with version strings like `dev-0024-20260214-abc1234` (`zero-padded build-date-hash`).
 
 ## Building
 
